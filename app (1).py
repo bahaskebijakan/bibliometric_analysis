@@ -1,0 +1,1011 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import networkx as nx
+from wordcloud import WordCloud, STOPWORDS
+from collections import Counter
+from itertools import combinations
+import re, os, io, zipfile, tempfile
+
+import bibtexparser
+import rispy
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.decomposition import LatentDirichletAllocation
+from pyvis.network import Network
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE CONFIG
+# ══════════════════════════════════════════════════════════════════════════════
+st.set_page_config(
+    page_title="BibloMetrix — Bibliometric Analysis Suite",
+    page_icon="📚",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GLOBAL STYLE
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'DM Sans', sans-serif;
+}
+
+/* Background */
+.stApp { background: #0F1117; }
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    background: #161B27 !important;
+    border-right: 1px solid #1E2A40;
+}
+
+/* Hero title */
+.hero-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 2.8rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #60A5FA 0%, #A78BFA 50%, #34D399 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.1;
+    margin-bottom: 0.2rem;
+}
+.hero-sub {
+    font-family: 'DM Sans', sans-serif;
+    color: #64748B;
+    font-size: 1rem;
+    margin-bottom: 2rem;
+}
+
+/* KPI Cards */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin: 1.5rem 0;
+}
+.kpi-card {
+    background: linear-gradient(135deg, #161B27 0%, #1E2A40 100%);
+    border: 1px solid #1E3A5F;
+    border-radius: 14px;
+    padding: 18px 12px;
+    text-align: center;
+    transition: transform 0.2s, border-color 0.2s;
+}
+.kpi-card:hover { transform: translateY(-2px); border-color: #3B82F6; }
+.kpi-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: #F1F5F9;
+}
+.kpi-label {
+    font-size: 0.72rem;
+    color: #64748B;
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Section header */
+.section-header {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #F1F5F9;
+    border-left: 3px solid #3B82F6;
+    padding-left: 12px;
+    margin: 2rem 0 1rem;
+}
+
+/* Status badges */
+.badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.badge-subj  { background:#1E3A5F; color:#60A5FA; }
+.badge-obj   { background:#14532D; color:#4ADE80; }
+.badge-hyb   { background:#451A03; color:#FCD34D; }
+.badge-ns    { background:#1E1B4B; color:#A5B4FC; }
+
+/* Upload zone */
+.upload-hint {
+    background: #161B27;
+    border: 1px dashed #1E3A5F;
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+    color: #475569;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+/* Download button */
+.stDownloadButton > button {
+    background: linear-gradient(135deg, #1D4ED8, #7C3AED) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-family: 'Syne', sans-serif !important;
+    font-weight: 600 !important;
+    padding: 0.5rem 1.5rem !important;
+    transition: opacity 0.2s !important;
+}
+.stDownloadButton > button:hover { opacity: 0.88 !important; }
+
+/* Tab styling */
+.stTabs [data-baseweb="tab"] {
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    color: #64748B;
+}
+.stTabs [aria-selected="true"] { color: #60A5FA !important; }
+
+/* Hide Streamlit branding */
+#MainMenu, footer, header { visibility: hidden; }
+</style>
+""", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONSTANTS
+# ══════════════════════════════════════════════════════════════════════════════
+C = dict(blue='#3B82F6', green='#22C55E', red='#EF4444',
+         amber='#F59E0B', purple='#A78BFA', slate='#64748B',
+         navy='#1E3A5F', bg='#0F1117', card='#161B27')
+
+DPI_EXPORT = 600
+
+plt.rcParams.update({
+    'figure.facecolor': '#161B27', 'axes.facecolor': '#161B27',
+    'axes.edgecolor': '#1E2A40',   'text.color': '#CBD5E1',
+    'axes.labelcolor': '#94A3B8',  'xtick.color': '#94A3B8',
+    'ytick.color': '#94A3B8',      'axes.grid': True,
+    'grid.color': '#1E2A40',       'grid.linewidth': 0.5,
+    'font.family': 'DejaVu Sans',  'axes.titlesize': 12,
+    'axes.titleweight': 'bold',    'axes.titlecolor': '#F1F5F9',
+})
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PARSERS
+# ══════════════════════════════════════════════════════════════════════════════
+def parse_scopus_bib(content: str) -> pd.DataFrame:
+    raw = re.sub(r'^[^@]+(?=@)', '', content, count=1)
+    parser = bibtexparser.bparser.BibTexParser(common_strings=True)
+    parser.ignore_nonstandard_types = False
+    bib_db = bibtexparser.loads(raw, parser)
+    rows = []
+    for e in bib_db.entries:
+        note  = e.get('note', '')
+        m     = re.search(r'Cited by:\s*(\d+)', note)
+        cited = int(m.group(1)) if m else np.nan
+        if   'Gold Open Access'  in note: oa = 'Gold OA'
+        elif 'Hybrid Gold'       in note: oa = 'Hybrid OA'
+        elif 'Green'             in note: oa = 'Green OA'
+        elif 'Open Access'       in note: oa = 'Open Access'
+        else:                             oa = 'Closed'
+        auth_kw = e.get('author_keywords', '')
+        idx_kw  = e.get('keywords', '')
+        rows.append({
+            'title':           e.get('title','').replace('{','').replace('}','').strip(),
+            'authors':         e.get('author',''),
+            'year':            e.get('year',''),
+            'journal':         e.get('journal', e.get('booktitle', '')),
+            'doi':             e.get('doi',''),
+            'abstract':        e.get('abstract',''),
+            'author_keywords': auth_kw,
+            'index_keywords':  idx_kw,
+            'keywords':        '; '.join(filter(None,[auth_kw, idx_kw])),
+            'cited_by':        cited,
+            'oa_status':       oa,
+            'document_type':   e.get('type', e.get('ENTRYTYPE','Unknown')),
+            'affiliations':    e.get('affiliations', e.get('affiliation','')),
+        })
+    return pd.DataFrame(rows)
+
+
+def parse_ris(content: str) -> pd.DataFrame:
+    import io as _io
+    entries = rispy.load(_io.StringIO(content))
+    MAP = {'title':['title','primary_title'],'authors':['authors','first_authors'],
+           'year':['year','publication_year'],'journal':['journal_name','secondary_title'],
+           'abstract':['abstract'],'author_keywords':['keywords'],
+           'doi':['doi'],'cited_by':['cited_by'],'affiliations':['affiliations']}
+    rows = []
+    for e in entries:
+        row = {}
+        for canon, keys in MAP.items():
+            for k in keys:
+                v = e.get(k,'')
+                if v: row[canon] = '; '.join(v) if isinstance(v,list) else str(v); break
+            if canon not in row: row[canon] = np.nan
+        row.setdefault('index_keywords','')
+        row['keywords']   = row.get('author_keywords','')
+        row['oa_status']  = 'Unknown'
+        row['document_type'] = e.get('type_of_reference','Unknown')
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def parse_csv(content: str) -> pd.DataFrame:
+    import io as _io
+    for enc in ['utf-8','latin-1','cp1252']:
+        try:
+            df = pd.read_csv(_io.StringIO(content)); break
+        except: continue
+    SMAP = {'Title':'title','Authors':'authors','Year':'year',
+            'Source title':'journal','Cited by':'cited_by','DOI':'doi',
+            'Abstract':'abstract','Author Keywords':'author_keywords',
+            'Index Keywords':'index_keywords','Affiliations':'affiliations',
+            'Document Type':'document_type','Open Access':'oa_status'}
+    df = df.rename(columns={k:v for k,v in SMAP.items() if k in df.columns})
+    for c in ['author_keywords','index_keywords','oa_status']:
+        if c not in df.columns: df[c] = ''
+    df['keywords'] = df.get('author_keywords','').fillna('') + '; ' + df.get('index_keywords','').fillna('')
+    return df
+
+
+def load_and_merge(uploaded_files) -> pd.DataFrame:
+    frames = []
+    for f in uploaded_files:
+        content = f.read().decode('utf-8', errors='replace')
+        ext = os.path.splitext(f.name)[1].lower()
+        if ext in ('.bib','.bibtex'): frames.append(parse_scopus_bib(content))
+        elif ext == '.ris':           frames.append(parse_ris(content))
+        elif ext == '.csv':           frames.append(parse_csv(content))
+    if not frames: return pd.DataFrame()
+    df = pd.concat(frames, ignore_index=True)
+
+    CANONICAL = ['title','authors','year','journal','keywords','author_keywords',
+                 'index_keywords','abstract','cited_by','doi','affiliations',
+                 'document_type','oa_status']
+    for c in CANONICAL:
+        if c not in df.columns: df[c] = np.nan
+
+    df['year']     = pd.to_numeric(df['year'],     errors='coerce')
+    df['cited_by'] = pd.to_numeric(df['cited_by'], errors='coerce')
+    df = df.drop_duplicates(subset=['title'], keep='first').reset_index(drop=True)
+    df = df[df.year.between(1900, pd.Timestamp.now().year)].copy()
+
+    def parse_authors(s):
+        if pd.isna(s) or not str(s).strip(): return []
+        s = str(s)
+        if ' and ' in s.lower():
+            return [p.strip() for p in re.split(r'\s+and\s+', s, flags=re.IGNORECASE) if p.strip()]
+        return [p.strip() for p in re.split(r'[;|]', s) if p.strip()]
+
+    def split_kw(x):
+        if pd.isna(x) or not str(x).strip(): return []
+        return [k.strip().lower() for k in re.split(r'[;,]', str(x)) if len(k.strip()) > 2]
+
+    df['author_list']    = df['authors'].apply(parse_authors)
+    df['author_count']   = df['author_list'].apply(len)
+    df['author_kw_list'] = df['author_keywords'].apply(split_kw)
+    df['index_kw_list']  = df['index_keywords'].apply(split_kw)
+
+    COUNTRIES = [
+        'Indonesia','Malaysia','Singapore','Thailand','Philippines','Vietnam',
+        'China','Japan','South Korea','India','Bangladesh','Australia',
+        'United States','United Kingdom','Germany','France','Spain','Italy',
+        'Netherlands','Sweden','Norway','Brazil','Canada','Mexico','Egypt',
+        'South Africa','Nigeria','Kenya','Ethiopia','Saudi Arabia','UAE','Iran',
+        'Turkey','Poland','Russia','Algeria','Morocco','Togo','Cyprus','Ghana'
+    ]
+    _cpat  = re.compile(r'\b(' + '|'.join(re.escape(c) for c in COUNTRIES) + r')\b', re.IGNORECASE)
+    _cnorm = {'USA':'United States','UK':'United Kingdom'}
+    df['country_list'] = df['affiliations'].apply(
+        lambda x: list(dict.fromkeys(_cnorm.get(c.title(),c.title())
+                       for c in _cpat.findall(str(x)))) if pd.notna(x) else [])
+    return df
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FIGURE HELPERS
+# ══════════════════════════════════════════════════════════════════════════════
+def fig_to_bytes(fig, dpi=DPI_EXPORT):
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=dpi, bbox_inches='tight',
+                facecolor=fig.get_facecolor())
+    buf.seek(0)
+    return buf.read()
+
+def dl_btn(label, fig, fname):
+    st.download_button(
+        label=f"⬇️ {label} (600 DPI PNG)",
+        data=fig_to_bytes(fig),
+        file_name=fname,
+        mime='image/png',
+        use_container_width=True,
+    )
+
+def section(title):
+    st.markdown(f'<div class="section-header">{title}</div>', unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SIDEBAR
+# ══════════════════════════════════════════════════════════════════════════════
+with st.sidebar:
+    st.markdown("""
+    <div style='font-family:Syne,sans-serif;font-size:1.3rem;font-weight:800;
+    background:linear-gradient(135deg,#60A5FA,#A78BFA);-webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;margin-bottom:0.3rem'>BibloMetrix</div>
+    <div style='color:#475569;font-size:0.78rem;margin-bottom:1.5rem'>
+    Bibliometric & Scientometric Analysis Suite</div>
+    """, unsafe_allow_html=True)
+
+    uploaded = st.file_uploader(
+        "Upload file bibliometrik",
+        type=['bib','ris','csv'],
+        accept_multiple_files=True,
+        help="Scopus .bib, .ris, atau .csv — bisa upload beberapa sekaligus untuk digabung otomatis"
+    )
+
+    st.markdown("---")
+    st.markdown("<div style='color:#475569;font-size:0.78rem'>⚙️ Pengaturan Analisis</div>",
+                unsafe_allow_html=True)
+    top_n     = st.slider("Top N items di chart", 5, 30, 15)
+    n_topics  = st.slider("Jumlah topik LDA", 2, 10, 5)
+    min_cooc  = st.slider("Min. co-occurrence keyword", 1, 10, 2)
+    dpi_label = st.selectbox("Kualitas download", ["600 DPI (publikasi)", "300 DPI (presentasi)", "150 DPI (web)"],
+                             index=0)
+    DPI = 600 if '600' in dpi_label else 300 if '300' in dpi_label else 150
+
+    st.markdown("---")
+    st.markdown("""
+    <div style='color:#374151;font-size:0.73rem;line-height:1.6'>
+    📌 <b style='color:#64748B'>Cara pakai:</b><br>
+    1. Upload file .bib dari Scopus<br>
+    2. Pilih analisis di tab<br>
+    3. Download hasil (600 DPI)<br><br>
+    💡 Bisa upload <b style='color:#60A5FA'>multiple files</b> sekaligus — akan digabung otomatis
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MAIN CONTENT
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown("""
+<div class='hero-title'>BibloMetrix</div>
+<div class='hero-sub'>World-class Bibliometric & Scientometric Analysis Suite · Optimised for Scopus .bib exports</div>
+""", unsafe_allow_html=True)
+
+if not uploaded:
+    st.markdown("""
+    <div class='upload-hint'>
+    📂 Upload file <b>.bib</b> (Scopus), <b>.ris</b>, atau <b>.csv</b> di sidebar untuk memulai analisis.<br>
+    Bisa upload beberapa file sekaligus — akan digabung otomatis.
+    </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("""
+        <div style='background:#161B27;border:1px solid #1E2A40;border-radius:12px;padding:20px'>
+        <div style='font-size:1.5rem'>📊</div>
+        <div style='font-family:Syne,sans-serif;font-weight:700;color:#F1F5F9;margin:8px 0 4px'>
+        14+ Analisis</div>
+        <div style='color:#64748B;font-size:0.85rem'>Trends, Bradford's Law, Lotka's Law,
+        citation impact, LDA, research fronts, networks</div></div>""", unsafe_allow_html=True)
+    with col2:
+        st.markdown("""
+        <div style='background:#161B27;border:1px solid #1E2A40;border-radius:12px;padding:20px'>
+        <div style='font-size:1.5rem'>🔗</div>
+        <div style='font-family:Syne,sans-serif;font-weight:700;color:#F1F5F9;margin:8px 0 4px'>
+        Network Analysis</div>
+        <div style='color:#64748B;font-size:0.85rem'>Co-authorship & keyword co-occurrence
+        networks — static 600 DPI + interactive HTML</div></div>""", unsafe_allow_html=True)
+    with col3:
+        st.markdown("""
+        <div style='background:#161B27;border:1px solid #1E2A40;border-radius:12px;padding:20px'>
+        <div style='font-size:1.5rem'>⬇️</div>
+        <div style='font-family:Syne,sans-serif;font-weight:700;color:#F1F5F9;margin:8px 0 4px'>
+        Download 600 DPI</div>
+        <div style='color:#64748B;font-size:0.85rem'>Semua chart siap publikasi,
+        jaringan interaktif HTML, tabel CSV</div></div>""", unsafe_allow_html=True)
+    st.stop()
+
+
+# ── Load data ─────────────────────────────────────────────────────────────────
+with st.spinner("⏳ Memuat dan memproses data..."):
+    df = load_and_merge(uploaded)
+
+if df.empty or len(df) == 0:
+    st.error("Tidak ada data yang berhasil di-parse. Pastikan format file benar.")
+    st.stop()
+
+# ── Pre-compute common values ─────────────────────────────────────────────────
+total_pubs     = len(df)
+total_cites    = df.cited_by.sum()
+avg_cites      = df.cited_by.mean()
+median_cites   = df.cited_by.median()
+sc             = sorted(df.cited_by.dropna(), reverse=True)
+h_index        = sum(1 for i,c in enumerate(sc,1) if c >= i)
+unique_authors = len({a for lst in df.author_list for a in lst})
+unique_jnls    = df.journal.nunique()
+collab_rate    = (df.author_count > 1).mean() * 100
+oa_rate        = (df.oa_status != 'Closed').mean() * 100
+year_span      = f"{int(df.year.min())}–{int(df.year.max())}"
+
+auth_cites = {}
+for _, row in df.iterrows():
+    c = row.cited_by if pd.notna(row.cited_by) else 0
+    for a in row.author_list: auth_cites[a] = auth_cites.get(a, 0) + c
+
+
+# ── KPI Dashboard ─────────────────────────────────────────────────────────────
+st.success(f"✅ **{total_pubs:,} records** berhasil dimuat dari {len(uploaded)} file(s)")
+
+kpis = [
+    ("📄", "Total Publikasi",    f"{total_pubs:,}"),
+    ("📅", "Rentang Tahun",      year_span),
+    ("✍️", "Unique Authors",     f"{unique_authors:,}"),
+    ("📰", "Unique Journals",    f"{unique_jnls:,}"),
+    ("📊", "Total Sitasi",       f"{total_cites:,.0f}"),
+    ("⭐", "Mean Sitasi/Paper",  f"{avg_cites:.1f}"),
+    ("📈", "Median Sitasi",      f"{median_cites:.0f}"),
+    ("🏆", "Corpus H-Index",     f"{h_index}"),
+    ("🤝", "Collaboration Rate", f"{collab_rate:.1f}%"),
+    ("🔓", "Open Access Rate",   f"{oa_rate:.1f}%"),
+]
+
+kpi_html = "<div class='kpi-grid'>"
+for icon, label, val in kpis:
+    kpi_html += f"""<div class='kpi-card'>
+        <div class='kpi-value'>{val}</div>
+        <div class='kpi-label'>{icon} {label}</div></div>"""
+kpi_html += "</div>"
+st.markdown(kpi_html, unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TABS
+# ══════════════════════════════════════════════════════════════════════════════
+tabs = st.tabs([
+    "📈 Trends",
+    "📰 Journals",
+    "✍️ Authors",
+    "🌍 Country & OA",
+    "🔑 Keywords",
+    "📊 Citations",
+    "🔗 Networks",
+    "🧠 Topics (LDA)",
+    "🚀 Research Fronts",
+    "⬇️ Export All",
+])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 1 — TRENDS
+# ══════════════════════════════════════════════════════════════════════════════
+with tabs[0]:
+    section("Publication Trends & Growth Analysis")
+
+    yc = df.groupby('year').size().reset_index(name='papers')
+    yc['cumulative'] = yc.papers.cumsum()
+    yc['yoy_pct']    = yc.papers.pct_change() * 100
+    yc['rolling3']   = yc.papers.rolling(3, center=True).mean()
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 9))
+    fig.suptitle('Publication Trend Analysis', fontsize=14, fontweight='bold', color='#F1F5F9')
+
+    ax = axes[0,0]
+    ax.bar(yc.year, yc.papers, color=C['blue'], alpha=0.7, label='Annual output')
+    ax.plot(yc.year, yc.rolling3, color=C['red'], lw=2.5, label='3-yr rolling avg')
+    ax.set_title('Annual Publication Volume'); ax.set_xlabel('Year'); ax.set_ylabel('Papers')
+    ax.legend(facecolor='#1E2A40', labelcolor='#CBD5E1')
+
+    ax = axes[0,1]
+    ax.fill_between(yc.year, yc.cumulative, alpha=0.3, color=C['green'])
+    ax.plot(yc.year, yc.cumulative, color=C['green'], lw=2)
+    ax.set_title('Cumulative Growth'); ax.set_xlabel('Year'); ax.set_ylabel('Cumulative Papers')
+
+    ax = axes[1,0]
+    cc = [C['green'] if v>=0 else C['red'] for v in yc.yoy_pct.fillna(0)]
+    ax.bar(yc.year, yc.yoy_pct.fillna(0), color=cc, alpha=0.8)
+    ax.axhline(0, color='#94A3B8', lw=0.8)
+    ax.set_title('Year-on-Year Growth (%)'); ax.set_xlabel('Year'); ax.set_ylabel('Growth %')
+
+    ax = axes[1,1]
+    if df.document_type.notna().sum() > 0:
+        dt = df.document_type.value_counts().head(8)
+        ax.pie(dt.values, labels=dt.index, autopct='%1.1f%%', startangle=140,
+               colors=plt.cm.Set2.colors[:len(dt)],
+               textprops={'color':'#CBD5E1'})
+        ax.set_title('Document Type Mix')
+
+    plt.tight_layout()
+    st.pyplot(fig)
+    dl_btn("Download Trend Chart", fig, "trends.png")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 2 — JOURNALS
+# ══════════════════════════════════════════════════════════════════════════════
+with tabs[1]:
+    section("Journal Analysis & Bradford's Law")
+
+    jc  = df.journal.value_counts().dropna()
+    bdf = jc.reset_index(); bdf.columns = ['journal','count']
+    bdf['rank']    = range(1, len(bdf)+1)
+    bdf['cum_pct'] = bdf['count'].cumsum() / bdf['count'].sum() * 100
+    z1 = (bdf.cum_pct - 33.3).abs().idxmin()
+    z2 = (bdf.cum_pct - 66.7).abs().idxmin()
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    top_j = jc.head(top_n)
+    axes[0].barh(top_j.index[::-1], top_j.values[::-1],
+                 color=plt.cm.Blues(np.linspace(0.4, 0.9, len(top_j)))[::-1])
+    axes[0].set_title(f"Top {top_n} Journals"); axes[0].set_xlabel('Papers')
+
+    axes[1].semilogx(bdf['rank'], bdf['cum_pct'], color=C['blue'], lw=2)
+    axes[1].axhline(33.3, color=C['amber'], ls='--', lw=1, label=f"Zone 1: {z1+1} journals")
+    axes[1].axhline(66.7, color=C['red'],   ls='--', lw=1, label=f"Zone 2: {z2-z1} journals")
+    axes[1].fill_between(bdf['rank'][:z1+1],   bdf.cum_pct[:z1+1],   alpha=0.1, color=C['amber'])
+    axes[1].fill_between(bdf['rank'][z1:z2+1], bdf.cum_pct[z1:z2+1], alpha=0.07, color=C['red'])
+    axes[1].set_title("Bradford's Law"); axes[1].set_xlabel('Journal Rank (log)')
+    axes[1].set_ylabel('Cumulative %')
+    axes[1].legend(facecolor='#1E2A40', labelcolor='#CBD5E1')
+    plt.tight_layout(); st.pyplot(fig)
+    dl_btn("Download Journal Chart", fig, "journals.png")
+
+    st.markdown(f"""
+    <div style='background:#161B27;border:1px solid #1E2A40;border-radius:10px;padding:16px;margin-top:1rem'>
+    <b style='color:#60A5FA'>Bradford's Law Results:</b><br>
+    <span style='color:#94A3B8'>Zone 1 (Core): <b style='color:#FCD34D'>{z1+1} journals</b> → {bdf.cum_pct[z1]:.1f}% of all papers<br>
+    Zone 2: <b style='color:#F87171'>{z2-z1} journals</b><br>
+    Zone 3 (Tail): <b style='color:#94A3B8'>{len(bdf)-z2} journals</b></span></div>""",
+    unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 3 — AUTHORS
+# ══════════════════════════════════════════════════════════════════════════════
+with tabs[2]:
+    section("Author Analytics & Lotka's Law")
+
+    all_authors = [a for lst in df.author_list for a in lst if a]
+    auth_df = pd.DataFrame(Counter(all_authors).items(), columns=['author','papers'])\
+                .sort_values('papers', ascending=False).reset_index(drop=True)
+    auth_df['total_cites']     = auth_df.author.map(auth_cites).fillna(0).astype(int)
+    auth_df['cites_per_paper'] = (auth_df.total_cites / auth_df.papers).round(1)
+
+    fig, axes = plt.subplots(1, 3, figsize=(16, 6))
+
+    axes[0].barh(auth_df.head(top_n).author[::-1], auth_df.head(top_n).papers[::-1], color=C['blue'])
+    axes[0].set_title(f'Top {top_n} Authors — Publications'); axes[0].set_xlabel('Papers')
+
+    top_ac = auth_df.nlargest(top_n,'total_cites')
+    axes[1].barh(top_ac.author[::-1], top_ac.total_cites[::-1], color=C['green'])
+    axes[1].set_title(f'Top {top_n} Authors — Citations'); axes[1].set_xlabel('Total Citations')
+
+    lotka_obs = auth_df.papers.value_counts().sort_index()
+    n1        = (auth_df.papers == 1).sum()
+    lotka_exp = pd.Series({n: n1/(n**2) for n in lotka_obs.index})
+    axes[2].scatter(lotka_obs.index, lotka_obs.values, color=C['blue'], label='Observed', s=45, zorder=3)
+    axes[2].plot(lotka_exp.index, lotka_exp.values, color=C['red'], ls='--', lw=2, label="Lotka's Law")
+    axes[2].set_xscale('log'); axes[2].set_yscale('log')
+    axes[2].set_title("Lotka's Law"); axes[2].set_xlabel('Papers (log)'); axes[2].set_ylabel('Authors (log)')
+    axes[2].legend(facecolor='#1E2A40', labelcolor='#CBD5E1')
+
+    plt.tight_layout(); st.pyplot(fig)
+    dl_btn("Download Author Chart", fig, "authors.png")
+
+    st.dataframe(
+        auth_df.head(20).rename(columns={'author':'Author','papers':'Papers',
+                                          'total_cites':'Total Citations','cites_per_paper':'Cites/Paper'}),
+        use_container_width=True, hide_index=True
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 4 — COUNTRY & OA
+# ══════════════════════════════════════════════════════════════════════════════
+with tabs[3]:
+    section("Country Output & Open Access Analysis")
+
+    all_countries  = [c for lst in df.country_list for c in lst]
+    c_df = pd.DataFrame(Counter(all_countries).items(), columns=['country','papers'])\
+             .sort_values('papers', ascending=False).reset_index(drop=True)
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+    if len(c_df) > 0:
+        top_c = c_df.head(top_n)
+        axes[0].barh(top_c.country[::-1], top_c.papers[::-1],
+                     color=plt.cm.viridis(np.linspace(0.2,0.85,len(top_c))))
+        axes[0].set_title(f'Top {top_n} Countries'); axes[0].set_xlabel('Papers')
+    else:
+        axes[0].text(0.5,0.5,'No country data\n(affiliations not in export)',
+                     ha='center', va='center', transform=axes[0].transAxes, color='#94A3B8')
+
+    oa_counts = df.oa_status.value_counts()
+    col_map   = {'Gold OA':C['amber'],'Hybrid OA':C['blue'],'Green OA':C['green'],
+                 'Open Access':C['purple'],'Closed':C['slate'],'Unknown':C['red']}
+    bar_cols  = [col_map.get(s, C['slate']) for s in oa_counts.index]
+    axes[1].bar(oa_counts.index, oa_counts.values, color=bar_cols, alpha=0.85)
+    axes[1].set_title('Open Access Status (from Scopus note field)')
+    axes[1].set_xlabel('OA Category'); axes[1].set_ylabel('Papers')
+    for i,(cat,val) in enumerate(oa_counts.items()):
+        axes[1].text(i, val+0.2, str(val), ha='center', fontsize=9,
+                     fontweight='bold', color='#F1F5F9')
+
+    plt.tight_layout(); st.pyplot(fig)
+    dl_btn("Download Country & OA Chart", fig, "country_oa.png")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 5 — KEYWORDS
+# ══════════════════════════════════════════════════════════════════════════════
+with tabs[4]:
+    section("Keyword Intelligence — Author Keywords vs Index Keywords")
+
+    auth_kw_all  = [k for lst in df.author_kw_list for k in lst]
+    idx_kw_all   = [k for lst in df.index_kw_list  for k in lst]
+    auth_kw_freq = Counter(auth_kw_all)
+    idx_kw_freq  = Counter(idx_kw_all)
+    akw_df = pd.DataFrame(auth_kw_freq.items(), columns=['keyword','count'])\
+               .sort_values('count', ascending=False).reset_index(drop=True)
+    ikw_df = pd.DataFrame(idx_kw_freq.items(), columns=['keyword','count'])\
+               .sort_values('count', ascending=False).reset_index(drop=True)
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    fig.suptitle('Keyword Analysis', fontsize=13, fontweight='bold', color='#F1F5F9')
+
+    axes[0,0].barh(akw_df.head(top_n).keyword[::-1], akw_df.head(top_n)['count'][::-1], color=C['blue'])
+    axes[0,0].set_title('Top Author Keywords'); axes[0,0].set_xlabel('Frequency')
+
+    axes[0,1].barh(ikw_df.head(top_n).keyword[::-1], ikw_df.head(top_n)['count'][::-1], color=C['green'])
+    axes[0,1].set_title('Top Scopus Index Keywords'); axes[0,1].set_xlabel('Frequency')
+
+    if auth_kw_freq:
+        wc = WordCloud(width=700, height=320, background_color='#161B27',
+                       colormap='Blues', max_words=80).generate_from_frequencies(auth_kw_freq)
+        axes[1,0].imshow(wc, interpolation='bilinear'); axes[1,0].axis('off')
+        axes[1,0].set_title('Author Keyword Cloud')
+    if idx_kw_freq:
+        wc2 = WordCloud(width=700, height=320, background_color='#161B27',
+                        colormap='Greens', max_words=80).generate_from_frequencies(idx_kw_freq)
+        axes[1,1].imshow(wc2, interpolation='bilinear'); axes[1,1].axis('off')
+        axes[1,1].set_title('Index Keyword Cloud')
+
+    plt.tight_layout(); st.pyplot(fig)
+    dl_btn("Download Keyword Chart", fig, "keywords.png")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 6 — CITATIONS
+# ══════════════════════════════════════════════════════════════════════════════
+with tabs[5]:
+    section("Citation & Impact Analysis")
+
+    cit_df = df[df.cited_by.notna()].sort_values('cited_by', ascending=False)
+
+    fig, axes = plt.subplots(1, 3, figsize=(16, 6))
+
+    nz = cit_df[cit_df.cited_by > 0].cited_by
+    if len(nz) > 0:
+        axes[0].hist(np.log10(nz+1), bins=min(40, len(nz)//2+1),
+                     color=C['blue'], edgecolor='#0F1117', alpha=0.85)
+    axes[0].axvline(np.log10(cit_df.cited_by.mean()+1),   color=C['red'],   ls='--',
+                    label=f"Mean={cit_df.cited_by.mean():.1f}")
+    axes[0].axvline(np.log10(cit_df.cited_by.median()+1), color=C['green'], ls='--',
+                    label=f"Median={cit_df.cited_by.median():.0f}")
+    axes[0].set_title('Citation Distribution (log₁₀)'); axes[0].set_xlabel('log₁₀(Cites+1)')
+    axes[0].legend(facecolor='#1E2A40', labelcolor='#CBD5E1')
+
+    sc_s = np.sort(cit_df.cited_by.values)
+    cp   = np.arange(1, len(sc_s)+1) / len(sc_s)
+    cc_s = np.cumsum(sc_s) / sc_s.sum()
+    axes[1].plot(cp*100, cc_s*100, color=C['blue'], lw=2)
+    axes[1].plot([0,100],[0,100], color='#94A3B8', ls='--', lw=1, label='Perfect equality')
+    axes[1].fill_between(cp*100, cc_s*100, cp*100, alpha=0.1, color=C['blue'])
+    idx90 = np.searchsorted(cp, 0.90)
+    axes[1].annotate(f"Top 10% papers\n→ {(1-cc_s[idx90])*100:.0f}% of cites",
+                     xy=(90, cc_s[idx90]*100), xytext=(50,20),
+                     arrowprops=dict(arrowstyle='->', color='#94A3B8'),
+                     color=C['red'], fontsize=9)
+    axes[1].set_title('Citation Lorenz Curve'); axes[1].set_xlabel('% Papers')
+    axes[1].set_ylabel('Cumulative Cites %')
+    axes[1].legend(facecolor='#1E2A40', labelcolor='#CBD5E1')
+
+    cyt = df.groupby('year')['cited_by'].agg(['mean','sum'])
+    ax2 = axes[2].twinx()
+    axes[2].bar(cyt.index, cyt['sum'], color=C['blue'], alpha=0.4, label='Total cites')
+    ax2.plot(cyt.index, cyt['mean'], color=C['red'], lw=2, marker='o', ms=4, label='Mean/paper')
+    axes[2].set_title('Citations by Year'); axes[2].set_xlabel('Year')
+    axes[2].set_ylabel('Total Cites', color=C['blue'])
+    ax2.set_ylabel('Mean Cites/Paper', color=C['red'])
+
+    plt.tight_layout(); st.pyplot(fig)
+    dl_btn("Download Citation Chart", fig, "citations.png")
+
+    st.markdown("<div class='section-header' style='font-size:1rem'>🏆 Top Cited Papers</div>",
+                unsafe_allow_html=True)
+    tc = cit_df[['title','year','journal','cited_by']].head(15).copy()
+    tc['title'] = tc['title'].str[:70] + '...'
+    st.dataframe(tc.rename(columns={'title':'Title','year':'Year',
+                                     'journal':'Journal','cited_by':'Citations'}),
+                 use_container_width=True, hide_index=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 7 — NETWORKS
+# ══════════════════════════════════════════════════════════════════════════════
+with tabs[6]:
+    section("Collaboration Networks")
+
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        st.markdown("<b style='color:#60A5FA'>Author Co-authorship Network</b>", unsafe_allow_html=True)
+        G = nx.Graph()
+        for _, row in df.iterrows():
+            auths = row.author_list
+            if len(auths) > 1:
+                for a1,a2 in combinations(auths,2):
+                    if G.has_edge(a1,a2): G[a1][a2]['weight'] += 1
+                    else:                 G.add_edge(a1,a2, weight=1)
+
+        deg_c = dict(G.degree())
+        btw_c = nx.betweenness_centrality(G, normalized=True, weight='weight') if G.number_of_nodes() > 0 else {}
+
+        top50 = sorted(deg_c, key=deg_c.get, reverse=True)[:min(50, len(deg_c))]
+        SG    = G.subgraph(top50)
+
+        fig2, ax = plt.subplots(figsize=(8, 8))
+        if SG.number_of_nodes() > 0:
+            pos  = nx.spring_layout(SG, k=0.6, seed=42)
+            nsz  = [SG.degree(n)*80+50 for n in SG.nodes()]
+            ncol = [btw_c.get(n,0) for n in SG.nodes()]
+            ew   = [SG[u][v].get('weight',1)*0.4 for u,v in SG.edges()]
+            nx.draw_networkx_edges(SG, pos, ax=ax, width=ew, edge_color='#1E2A40', alpha=0.6)
+            sc2 = nx.draw_networkx_nodes(SG, pos, ax=ax, node_size=nsz,
+                                          node_color=ncol, cmap='YlOrRd', alpha=0.9)
+            nx.draw_networkx_labels(SG, pos, ax=ax, font_size=6, font_color='#CBD5E1')
+            plt.colorbar(sc2, ax=ax, label='Betweenness', shrink=0.6)
+        ax.set_title('Author Network (Top 50)', color='#F1F5F9'); ax.axis('off')
+        plt.tight_layout(); st.pyplot(fig2)
+        dl_btn("Download Network Chart", fig2, "author_network.png")
+
+    with col_b:
+        st.markdown("<b style='color:#60A5FA'>Keyword Co-occurrence Network</b>", unsafe_allow_html=True)
+        G_kw = nx.Graph()
+        for kw_list in df.author_kw_list:
+            if len(kw_list) > 1:
+                for k1,k2 in combinations(kw_list,2):
+                    if G_kw.has_edge(k1,k2): G_kw[k1][k2]['weight'] += 1
+                    else:                    G_kw.add_edge(k1,k2, weight=1)
+        G_kw = nx.Graph([(u,v,d) for u,v,d in G_kw.edges(data=True) if d['weight'] >= min_cooc])
+
+        fig3, ax3 = plt.subplots(figsize=(8,8))
+        if G_kw.number_of_nodes() > 0:
+            kw_deg = dict(G_kw.degree())
+            pos_kw = nx.spring_layout(G_kw, k=0.5, seed=42)
+            node_sz = [kw_deg[n]*60+30 for n in G_kw.nodes()]
+            nx.draw_networkx_edges(G_kw, pos_kw, ax=ax3,
+                                   edge_color='#1E2A40', alpha=0.5)
+            nx.draw_networkx_nodes(G_kw, pos_kw, ax=ax3,
+                                   node_size=node_sz, node_color=C['purple'], alpha=0.85)
+            nx.draw_networkx_labels(G_kw, pos_kw, ax=ax3, font_size=6.5, font_color='#CBD5E1')
+        ax3.set_title(f'Keyword Network (co-occur ≥{min_cooc})', color='#F1F5F9'); ax3.axis('off')
+        plt.tight_layout(); st.pyplot(fig3)
+        dl_btn("Download Keyword Network Chart", fig3, "keyword_network.png")
+
+    # Interactive PyVis
+    st.markdown("---")
+    if st.button("🕸️ Generate Interactive Network (HTML)", use_container_width=True):
+        with st.spinner("Building interactive network..."):
+            deg_thresh = max(1, int(np.percentile(list(deg_c.values()), 70))) if deg_c else 1
+            SG2 = G.subgraph([n for n,d in deg_c.items() if d >= deg_thresh])
+            nv  = Network(height='600px', width='100%', bgcolor='#0F1117',
+                          font_color='#CBD5E1', notebook=False)
+            nv.barnes_hut(gravity=-8000, central_gravity=0.3, spring_length=120)
+            for node in SG2.nodes():
+                d = SG2.degree(node); b = btw_c.get(node,0)
+                nv.add_node(node, label=node, size=d*4+6,
+                            color=f'rgba(59,130,246,{min(0.3+b*15,1):.2f})',
+                            title=f'{node}\nDegree: {d}\nBetweenness: {b:.4f}')
+            for u,v,d in SG2.edges(data=True):
+                nv.add_edge(u,v,width=d.get('weight',1)*0.6)
+            with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as tmp:
+                nv.save_graph(tmp.name)
+                with open(tmp.name, 'r') as f: html_str = f.read()
+            st.download_button("⬇️ Download Interactive Network (HTML)",
+                               data=html_str.encode(),
+                               file_name="author_network_interactive.html",
+                               mime='text/html', use_container_width=True)
+            st.components.v1.html(html_str, height=620)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 8 — LDA
+# ══════════════════════════════════════════════════════════════════════════════
+with tabs[7]:
+    section("LDA Topic Modelling from Abstracts")
+
+    abstracts = df.abstract.dropna().astype(str)
+    abstracts = abstracts[abstracts.str.len() > 80].reset_index(drop=True)
+
+    if len(abstracts) < 5:
+        st.warning("Terlalu sedikit abstrak (< 5). Upload lebih banyak data.")
+    else:
+        st.info(f"Fitting LDA dengan **{n_topics} topik** pada **{len(abstracts)}** abstrak...")
+        vec   = CountVectorizer(max_df=0.9, min_df=2, max_features=1500,
+                                stop_words='english', ngram_range=(1,2))
+        try:
+            dtm   = vec.fit_transform(abstracts)
+            vocab = np.array(vec.get_feature_names_out())
+            lda   = LatentDirichletAllocation(n_components=n_topics, max_iter=30,
+                                               learning_method='online', random_state=42)
+            lda.fit(dtm)
+            topics = {i: vocab[comp.argsort()[::-1][:12]].tolist()
+                      for i,comp in enumerate(lda.components_)}
+
+            n_cols = min(3, n_topics)
+            n_rows = (n_topics + n_cols - 1) // n_cols
+            fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols*5, n_rows*4))
+            axes = axes.flatten() if n_topics > 1 else [axes]
+            for i in range(n_topics):
+                words  = topics[i]
+                scores = sorted(lda.components_[i], reverse=True)[:12]
+                norm   = np.array(scores) / np.sum(scores)
+                axes[i].barh(words[::-1], norm[::-1], color=plt.cm.tab10(i/n_topics))
+                axes[i].set_title(f'Topic {i+1}', fontweight='bold', color='#F1F5F9')
+                axes[i].set_xlabel('Relative Weight')
+            for j in range(n_topics, len(axes)): axes[j].set_visible(False)
+            fig.suptitle(f'LDA Topic Model ({n_topics} Topics)', fontsize=13,
+                         fontweight='bold', color='#F1F5F9')
+            plt.tight_layout(); st.pyplot(fig)
+            dl_btn("Download LDA Chart", fig, "lda_topics.png")
+
+            dom = Counter(lda.transform(dtm).argmax(axis=1))
+            st.markdown("**Topic Share:**")
+            for t in sorted(dom):
+                pct = dom[t]/len(abstracts)*100
+                st.markdown(f"- **Topic {t+1}** ({pct:.1f}%): {', '.join(topics[t][:5])}")
+        except Exception as ex:
+            st.error(f"LDA error: {ex}. Coba kurangi jumlah topik atau upload lebih banyak data.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 9 — RESEARCH FRONTS
+# ══════════════════════════════════════════════════════════════════════════════
+with tabs[8]:
+    section("Research Front Map — Emerging vs Established Themes")
+
+    kw_recs = [{'keyword':kw,'year':row.year}
+               for _,row in df.iterrows() if pd.notna(row.year)
+               for kw in row.author_kw_list]
+
+    if len(kw_recs) < 5:
+        st.warning("Tidak cukup data keyword-tahun. Pastikan abstrak dan keyword tersedia.")
+    else:
+        kw_temp  = pd.DataFrame(kw_recs)
+        kw_stats = kw_temp.groupby('keyword').agg(
+            count=('year','count'), mean_year=('year','mean')).reset_index()
+        cutoff   = df.year.max() - 2
+        recent   = kw_temp[kw_temp.year >= cutoff].groupby('keyword').size().rename('recent_n')
+        kw_stats = kw_stats.merge(recent, on='keyword', how='left').fillna(0)
+        kw_stats['recent_pct'] = kw_stats.recent_n / kw_stats['count']
+        kw_stats = kw_stats[kw_stats['count'] >= 2].copy()
+
+        if len(kw_stats) > 0:
+            med_y = kw_stats.mean_year.median()
+            med_r = kw_stats.recent_pct.median()
+
+            def classify(r):
+                if   r.mean_year>=med_y and r.recent_pct>=med_r: return 'Emerging Front'
+                elif r.mean_year>=med_y and r.recent_pct< med_r: return 'New but Niche'
+                elif r.mean_year< med_y and r.recent_pct>=med_r: return 'Classic Resurgent'
+                else:                                             return 'Established'
+
+            kw_stats['category'] = kw_stats.apply(classify, axis=1)
+            cat_col = {'Emerging Front':C['red'],'New but Niche':C['amber'],
+                       'Classic Resurgent':C['purple'],'Established':C['slate']}
+
+            fig, ax = plt.subplots(figsize=(13, 8))
+            for cat, grp in kw_stats.groupby('category'):
+                ax.scatter(grp.mean_year, grp.recent_pct,
+                           s=np.sqrt(grp['count'])*40, color=cat_col[cat],
+                           label=cat, alpha=0.75, edgecolors='#0F1117', lw=0.5)
+
+            top_em = kw_stats[kw_stats.category=='Emerging Front'].nlargest(12,'count')
+            for _,r in top_em.iterrows():
+                ax.annotate(r.keyword, (r.mean_year, r.recent_pct),
+                            fontsize=7.5, color='#FCA5A5',
+                            xytext=(4,4), textcoords='offset points')
+
+            ax.axvline(med_y, color='#334155', ls='--', lw=1)
+            ax.axhline(med_r, color='#334155', ls='--', lw=1)
+            ax.set_xlabel('Mean Year'); ax.set_ylabel('Recent Activity (last 2yr %)')
+            ax.set_title('Research Front Map · Bubble size = frequency', color='#F1F5F9')
+            ax.legend(facecolor='#161B27', labelcolor='#CBD5E1', title='Category',
+                      title_fontsize=9, loc='lower right')
+            plt.tight_layout(); st.pyplot(fig)
+            dl_btn("Download Research Front Map", fig, "research_fronts.png")
+
+            st.markdown("**🚀 Top Emerging Research Fronts:**")
+            for _,r in top_em.head(8).iterrows():
+                st.markdown(f"- **{r.keyword}** — freq: {int(r['count'])}, mean year: {r.mean_year:.1f}, recent: {r.recent_pct*100:.0f}%")
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 11 — EXPORT ALL
+# ══════════════════════════════════════════════════════════════════════════════
+with tabs[9]:
+    section("Export All Results")
+
+    st.markdown("""
+    <div style='background:#161B27;border:1px solid #1E2A40;border-radius:10px;
+    padding:16px;margin-bottom:1rem;color:#94A3B8;font-size:0.88rem'>
+    Download semua hasil analisis dalam satu ZIP file. Berisi semua tabel CSV yang bisa
+    dibuka di Excel, siap untuk laporan dan publikasi.
+    </div>""", unsafe_allow_html=True)
+
+    if st.button("📦 Generate & Download All CSVs (ZIP)", use_container_width=True):
+        with st.spinner("Menyiapkan semua file..."):
+            zip_buf = io.BytesIO()
+            with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+
+                # KPI summary
+                kpi_df = pd.DataFrame({'Metric':['Total Publications','Year Range','Unique Authors',
+                    'Unique Journals','Total Citations','Mean Cites','Median Cites','H-Index',
+                    'Collaboration Rate','OA Rate'],
+                    'Value':[total_pubs, year_span, unique_authors, unique_jnls,
+                             f'{total_cites:.0f}', f'{avg_cites:.1f}', f'{median_cites:.0f}',
+                             h_index, f'{collab_rate:.1f}%', f'{oa_rate:.1f}%']})
+                zf.writestr('kpi_summary.csv', kpi_df.to_csv(index=False))
+
+                # Authors
+                auth_df2 = pd.DataFrame(Counter([a for lst in df.author_list for a in lst if a]).items(),
+                                        columns=['author','papers'])\
+                             .sort_values('papers', ascending=False)
+                auth_df2['total_cites'] = auth_df2.author.map(auth_cites).fillna(0).astype(int)
+                zf.writestr('author_rankings.csv', auth_df2.to_csv(index=False))
+
+                # Journals
+                zf.writestr('journal_rankings.csv',
+                            jc.reset_index().rename(columns={'index':'journal',0:'papers'}).to_csv(index=False))
+
+                # Keywords
+                zf.writestr('author_keyword_freq.csv',
+                            pd.DataFrame(Counter([k for lst in df.author_kw_list for k in lst]).items(),
+                                         columns=['keyword','count']).sort_values('count',ascending=False)\
+                              .to_csv(index=False))
+                zf.writestr('index_keyword_freq.csv',
+                            pd.DataFrame(Counter([k for lst in df.index_kw_list for k in lst]).items(),
+                                         columns=['keyword','count']).sort_values('count',ascending=False)\
+                              .to_csv(index=False))
+
+                # Trends
+                zf.writestr('publication_trends.csv',
+                            df.groupby('year').size().reset_index(name='papers').to_csv(index=False))
+
+                # Countries
+                c_df2 = pd.DataFrame(Counter([c for lst in df.country_list for c in lst]).items(),
+                                     columns=['country','papers']).sort_values('papers',ascending=False)
+                zf.writestr('country_output.csv', c_df2.to_csv(index=False))
+
+
+
+            zip_buf.seek(0)
+            st.download_button(
+                label="⬇️ Download ZIP (semua CSV)",
+                data=zip_buf.read(),
+                file_name="bibliometric_results.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
+        st.success("✅ Semua file siap!")
