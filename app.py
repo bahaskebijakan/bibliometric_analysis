@@ -153,6 +153,65 @@ section[data-testid="stSidebar"] {
 
 /* Hide Streamlit branding */
 #MainMenu, footer, header { visibility: hidden; }
+/* Insight boxes */
+.insight-box {
+    background: linear-gradient(135deg, #0F1B2D 0%, #0D1F33 100%);
+    border: 1px solid #1E3A5F;
+    border-left: 4px solid #3B82F6;
+    border-radius: 0 10px 10px 0;
+    padding: 18px 20px;
+    margin-top: 1.5rem;
+    line-height: 1.8;
+}
+.insight-box.green  { border-left-color: #22C55E; }
+.insight-box.amber  { border-left-color: #F59E0B; }
+.insight-box.purple { border-left-color: #A78BFA; }
+.insight-box.red    { border-left-color: #EF4444; }
+.insight-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: #60A5FA;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.insight-title.green  { color: #4ADE80; }
+.insight-title.amber  { color: #FCD34D; }
+.insight-title.purple { color: #C4B5FD; }
+.insight-title.red    { color: #FCA5A5; }
+.insight-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 12px;
+}
+.insight-card {
+    background: #0F1117;
+    border: 1px solid #1E2A40;
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 0.82rem;
+    color: #94A3B8;
+    line-height: 1.6;
+}
+.insight-card b { color: #F1F5F9; }
+.insight-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    margin-right: 4px;
+    margin-bottom: 4px;
+}
+.tag-blue   { background:#1E3A5F; color:#60A5FA; }
+.tag-green  { background:#14532D; color:#4ADE80; }
+.tag-amber  { background:#451A03; color:#FCD34D; }
+.tag-purple { background:#2E1065; color:#C4B5FD; }
+.tag-red    { background:#450A0A; color:#FCA5A5; }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -660,6 +719,45 @@ with tabs[0]:
     st.pyplot(fig)
     dl_btn("Download Trend Chart", fig, "trends.png")
 
+    st.markdown("""
+    <div class='insight-box'>
+    <div class='insight-title'>💡 How to Read & Use This</div>
+    <div class='insight-row'>
+        <div class='insight-card'>
+            <b>Annual Volume + Rolling Average</b><br>
+            The bar chart shows yearly output. The red line smooths short-term noise —
+            if it trends upward, the field is growing. A flat or declining line suggests
+            saturation or shifting interest.
+        </div>
+        <div class='insight-card'>
+            <b>Cumulative Growth Curve</b><br>
+            A steep S-curve indicates an emerging field accelerating quickly.
+            A curve that has plateaued suggests a mature field with stable output —
+            useful context for positioning a new study.
+        </div>
+        <div class='insight-card'>
+            <b>Year-on-Year Growth (%)</b><br>
+            Green bars = growth years; red bars = decline. A surge of &gt;30%/yr
+            signals a hot topic. Consecutive red bars may indicate the field peaked —
+            or that interest has moved to a sub-topic.
+        </div>
+        <div class='insight-card'>
+            <b>Document Type Mix</b><br>
+            A high share of <b>Review</b> papers means the field is mature enough
+            to warrant synthesis. Dominance of <b>Articles</b> signals active empirical
+            work. Conference papers indicate fast-moving applied research.
+        </div>
+    </div>
+    <div style='margin-top:12px;font-size:0.82rem;color:#64748B'>
+    <b style='color:#94A3B8'>Use this for:</b>
+    <span class='insight-tag tag-blue'>Justifying research novelty</span>
+    <span class='insight-tag tag-green'>Selecting publication timing</span>
+    <span class='insight-tag tag-amber'>Grant narrative (growing field)</span>
+    <span class='insight-tag tag-purple'>Thesis background section</span>
+    </div>
+    </div>
+    """, unsafe_allow_html=True)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — JOURNALS
@@ -690,6 +788,45 @@ with tabs[1]:
     axes[1].legend(facecolor='#1E2A40', labelcolor='#CBD5E1')
     plt.tight_layout(); st.pyplot(fig)
     dl_btn("Download Journal Chart", fig, "journals.png")
+
+    st.markdown("""
+    <div class='insight-box green'>
+    <div class='insight-title green'>💡 How to Read & Use This</div>
+    <div class='insight-row'>
+        <div class='insight-card'>
+            <b>Top Journals Bar Chart</b><br>
+            These are the most productive venues in your corpus. They are your
+            <b>primary submission targets</b> — journals already engaged with your topic
+            and whose editors/reviewers are familiar with the discourse.
+        </div>
+        <div class='insight-card'>
+            <b>Bradford's Law — Zone 1 (Core)</b><br>
+            A small number of journals producing ~33% of all papers. These are the
+            <b>specialist journals</b> of this field — highest relevance and acceptance
+            likelihood for similar work.
+        </div>
+        <div class='insight-card'>
+            <b>Bradford's Law — Zone 2 & 3</b><br>
+            Zone 2 = mainstream journals with occasional coverage.
+            Zone 3 = peripheral venues — useful if targeting
+            interdisciplinary or applied audiences, or for finding underexplored outlets.
+        </div>
+        <div class='insight-card'>
+            <b>Strategic Use</b><br>
+            Cross-reference Zone 1 journals with their <b>Impact Factor / CiteScore</b>
+            on the Scopus journal page. Prioritise Q1 journals in Zone 1 for flagship
+            publications; use Zone 2 for faster turnaround.
+        </div>
+    </div>
+    <div style='margin-top:12px;font-size:0.82rem;color:#64748B'>
+    <b style='color:#94A3B8'>Use this for:</b>
+    <span class='insight-tag tag-green'>Choosing submission venue</span>
+    <span class='insight-tag tag-blue'>Literature review scope</span>
+    <span class='insight-tag tag-amber'>Systematic review protocol</span>
+    <span class='insight-tag tag-purple'>Field mapping</span>
+    </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown(f"""
     <div style='background:#161B27;border:1px solid #1E2A40;border-radius:10px;padding:16px;margin-top:1rem'>
@@ -733,6 +870,46 @@ with tabs[2]:
     plt.tight_layout(); st.pyplot(fig)
     dl_btn("Download Author Chart", fig, "authors.png")
 
+    st.markdown("""
+    <div class='insight-box purple'>
+    <div class='insight-title purple'>💡 How to Read & Use This</div>
+    <div class='insight-row'>
+        <div class='insight-card'>
+            <b>Top Authors by Publications</b><br>
+            These are the most prolific contributors. They are likely to be
+            <b>key researchers to follow</b> — check their recent work, Google Scholar
+            profile, and affiliated institutions for research directions.
+        </div>
+        <div class='insight-card'>
+            <b>Top Authors by Citations</b><br>
+            High citation count indicates <b>influence</b>, not just productivity.
+            Authors with fewer papers but high citations are producing seminal work —
+            prioritise reading their papers first.
+        </div>
+        <div class='insight-card'>
+            <b>Lotka's Law</b><br>
+            If observed data (blue dots) follows the 1/n² curve closely, authorship
+            is normally distributed. Deviation upward at n=1 means many one-time
+            contributors — a sign of a broad, interdisciplinary field.
+        </div>
+        <div class='insight-card'>
+            <b>Strategic Use</b><br>
+            Authors in both top-publications and top-citations lists are
+            <b>field leaders</b>. Consider them as: potential collaborators,
+            peer reviewers who will likely review your paper, or
+            benchmarks for your own research contribution.
+        </div>
+    </div>
+    <div style='margin-top:12px;font-size:0.82rem;color:#64748B'>
+    <b style='color:#94A3B8'>Use this for:</b>
+    <span class='insight-tag tag-purple'>Finding collaborators</span>
+    <span class='insight-tag tag-blue'>Building your reading list</span>
+    <span class='insight-tag tag-green'>Identifying peer reviewers</span>
+    <span class='insight-tag tag-amber'>Citation gap analysis</span>
+    </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.dataframe(
         auth_df.head(20).rename(columns={'author':'Author','papers':'Papers',
                                           'total_cites':'Total Citations','cites_per_paper':'Cites/Paper'}),
@@ -775,6 +952,48 @@ with tabs[3]:
     plt.tight_layout(); st.pyplot(fig)
     dl_btn("Download Country & OA Chart", fig, "country_oa.png")
 
+    st.markdown("""
+    <div class='insight-box amber'>
+    <div class='insight-title amber'>💡 How to Read & Use This</div>
+    <div class='insight-row'>
+        <div class='insight-card'>
+            <b>Country Output</b><br>
+            Dominant countries reflect where research funding, institutions, and
+            expertise are concentrated. A <b>heavily skewed distribution</b> toward
+            a few countries signals potential geographic bias in the literature —
+            worth noting in a systematic review's limitations section.
+        </div>
+        <div class='insight-card'>
+            <b>Geographic Gaps</b><br>
+            If your study region is absent or underrepresented, that is a
+            <b>research gap you can explicitly claim</b>. For instance, "no study
+            has applied this method in Southeast Asia" is a strong justification
+            for a new paper.
+        </div>
+        <div class='insight-card'>
+            <b>Open Access Status</b><br>
+            <b>Gold OA</b> = freely available, published in OA journal.<br>
+            <b>Hybrid OA</b> = OA article in a subscription journal (APC paid).<br>
+            <b>Green OA</b> = author's manuscript deposited in a repository.<br>
+            <b>Closed</b> = paywalled — check if your institution has access.
+        </div>
+        <div class='insight-card'>
+            <b>Strategic Use</b><br>
+            High OA rate = the community values open dissemination. If you plan to
+            publish, consider whether an OA route aligns with funder mandates
+            (e.g. EU Horizon, NIH). Green OA (self-archiving) is free and
+            available for most journals.
+        </div>
+    </div>
+    <div style='margin-top:12px;font-size:0.82rem;color:#64748B'>
+    <b style='color:#94A3B8'>Use this for:</b>
+    <span class='insight-tag tag-amber'>Identifying geographic research gaps</span>
+    <span class='insight-tag tag-green'>OA publishing decisions</span>
+    <span class='insight-tag tag-blue'>Systematic review bias assessment</span>
+    </div>
+    </div>
+    """, unsafe_allow_html=True)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 5 — KEYWORDS
@@ -813,6 +1032,45 @@ with tabs[4]:
 
     plt.tight_layout(); st.pyplot(fig)
     dl_btn("Download Keyword Chart", fig, "keywords.png")
+
+    st.markdown("""
+    <div class='insight-box'>
+    <div class='insight-title'>💡 How to Read & Use This</div>
+    <div class='insight-row'>
+        <div class='insight-card'>
+            <b>Author Keywords (Blue)</b><br>
+            These are concepts authors <i>chose</i> to describe their work — they reflect
+            the <b>intent and framing</b> of the research community. High-frequency author
+            keywords are the terms your own paper should use to be discoverable by peers.
+        </div>
+        <div class='insight-card'>
+            <b>Scopus Index Keywords (Green)</b><br>
+            Controlled vocabulary assigned by Scopus indexers. More standardised and
+            stable over time. Use these when designing <b>systematic review search strings</b>
+            to ensure comprehensive coverage across databases.
+        </div>
+        <div class='insight-card'>
+            <b>Word Clouds</b><br>
+            Word size = frequency. Terms in the centre of the cloud are the
+            <b>conceptual core</b> of this literature. Peripheral terms may represent
+            emerging niches or interdisciplinary bridges worth exploring.
+        </div>
+        <div class='insight-card'>
+            <b>Strategic Use — Two-layer Search</b><br>
+            Build your database search string by combining <b>author keywords</b>
+            (conceptual terms) AND <b>index keywords</b> (controlled vocab).
+            Example: ("multi-criteria" OR "MCDM") AND ("weighting" OR "AHP")
+        </div>
+    </div>
+    <div style='margin-top:12px;font-size:0.82rem;color:#64748B'>
+    <b style='color:#94A3B8'>Use this for:</b>
+    <span class='insight-tag tag-blue'>Choosing paper keywords</span>
+    <span class='insight-tag tag-green'>Systematic review search strings</span>
+    <span class='insight-tag tag-amber'>Identifying core concepts</span>
+    <span class='insight-tag tag-purple'>Finding adjacent topics</span>
+    </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -861,6 +1119,49 @@ with tabs[5]:
 
     plt.tight_layout(); st.pyplot(fig)
     dl_btn("Download Citation Chart", fig, "citations.png")
+
+    st.markdown("""
+    <div class='insight-box red'>
+    <div class='insight-title red'>💡 How to Read & Use This</div>
+    <div class='insight-row'>
+        <div class='insight-card'>
+            <b>Citation Distribution</b><br>
+            Most fields follow a <b>power law</b> — a few papers get most citations.
+            If the distribution is very steep, the field has clear canonical papers
+            that every new paper must cite. A flatter distribution suggests
+            more distributed influence.
+        </div>
+        <div class='insight-card'>
+            <b>Lorenz Curve & Inequality</b><br>
+            The further the curve bends from the diagonal, the more
+            <b>citation inequality</b> exists. If the top 10% of papers account for
+            &gt;80% of citations, the field has a small set of highly influential works —
+            read those first.
+        </div>
+        <div class='insight-card'>
+            <b>Citations by Year</b><br>
+            Recent years often show low citation counts — papers need time to accumulate
+            citations. A high mean for older years indicates <b>classic foundational papers</b>
+            in that period. Look for years with sudden spikes — they often correspond
+            to breakthrough publications.
+        </div>
+        <div class='insight-card'>
+            <b>Top Cited Papers Table</b><br>
+            These are your <b>must-read papers</b>. They represent the intellectual
+            foundation of the field. In your own paper, citing them signals to reviewers
+            that you are familiar with the core literature. Also check their
+            reference lists for earlier seminal work.
+        </div>
+    </div>
+    <div style='margin-top:12px;font-size:0.82rem;color:#64748B'>
+    <b style='color:#94A3B8'>Use this for:</b>
+    <span class='insight-tag tag-red'>Building your reading list</span>
+    <span class='insight-tag tag-blue'>Identifying seminal papers</span>
+    <span class='insight-tag tag-green'>Benchmarking impact</span>
+    <span class='insight-tag tag-amber'>Understanding field maturity</span>
+    </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown("<div class='section-header' style='font-size:1rem'>🏆 Top Cited Papers</div>",
                 unsafe_allow_html=True)
@@ -934,6 +1235,48 @@ with tabs[6]:
         plt.tight_layout(); st.pyplot(fig3)
         dl_btn("Download Keyword Network Chart", fig3, "keyword_network.png")
 
+    st.markdown("""
+    <div class='insight-box purple'>
+    <div class='insight-title purple'>💡 How to Read & Use This</div>
+    <div class='insight-row'>
+        <div class='insight-card'>
+            <b>Co-authorship Network</b><br>
+            <b>Node size</b> = number of collaborators (degree).
+            <b>Node colour</b> = betweenness centrality — darker nodes act as bridges
+            between different research groups. Bridge authors are valuable collaborators
+            as they connect otherwise disconnected communities.
+        </div>
+        <div class='insight-card'>
+            <b>Isolated Clusters</b><br>
+            Disconnected groups of nodes represent research silos — teams that publish
+            on the same topic but never collaborate. This is a
+            <b>collaboration opportunity</b> and a gap you can point to in a review paper.
+        </div>
+        <div class='insight-card'>
+            <b>Keyword Co-occurrence Network</b><br>
+            Two keywords linked by an edge appear together in the same paper.
+            <b>Dense clusters</b> = coherent sub-themes.
+            <b>Keywords bridging clusters</b> = integrative concepts that span
+            multiple sub-fields — often the most impactful contribution space.
+        </div>
+        <div class='insight-card'>
+            <b>Strategic Use</b><br>
+            Use the keyword network to identify <b>concept combinations</b> that are
+            underexplored (pairs of keywords that should connect but don't yet).
+            Use the author network to find collaboration pathways to reach
+            researchers outside your immediate circle.
+        </div>
+    </div>
+    <div style='margin-top:12px;font-size:0.82rem;color:#64748B'>
+    <b style='color:#94A3B8'>Use this for:</b>
+    <span class='insight-tag tag-purple'>Finding collaborators</span>
+    <span class='insight-tag tag-blue'>Identifying concept gaps</span>
+    <span class='insight-tag tag-green'>Mapping sub-field structure</span>
+    <span class='insight-tag tag-amber'>Spotting research silos</span>
+    </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     # Interactive PyVis
     st.markdown("---")
     if st.button("🕸️ Generate Interactive Network (HTML)", use_container_width=True):
@@ -1001,6 +1344,47 @@ with tabs[7]:
             plt.tight_layout(); st.pyplot(fig)
             dl_btn("Download LDA Chart", fig, "lda_topics.png")
 
+            st.markdown("""
+            <div class='insight-box green'>
+            <div class='insight-title green'>💡 How to Read & Use This</div>
+            <div class='insight-row'>
+                <div class='insight-card'>
+                    <b>Each Topic Bar Chart</b><br>
+                    Words with higher relative weight define that topic's theme.
+                    Read the top 5–6 words together as a concept cluster and give it
+                    a human-readable label — e.g. "Topic 2: GIS-based site selection".
+                    That label is a <b>sub-theme</b> of your research field.
+                </div>
+                <div class='insight-card'>
+                    <b>Topic Share (%)</b><br>
+                    Shows how many abstracts are dominated by each topic.
+                    A topic with &gt;40% share is the <b>mainstream strand</b>.
+                    Topics with &lt;10% share are niche or emerging — potentially
+                    higher novelty for a new paper.
+                </div>
+                <div class='insight-card'>
+                    <b>Interpreting Overlap</b><br>
+                    If two topics share many words, they may be the same sub-theme
+                    split across the model. Try reducing the number of topics
+                    in the sidebar slider to merge them into a cleaner picture.
+                </div>
+                <div class='insight-card'>
+                    <b>Strategic Use</b><br>
+                    Map your own paper's abstract onto these topics — which one does it
+                    fit? If your work spans two topics that rarely co-occur, that is a
+                    <b>novelty claim</b>: "We integrate [Topic A] with [Topic B],
+                    an approach absent in prior literature."
+                </div>
+            </div>
+            <div style='margin-top:12px;font-size:0.82rem;color:#64748B'>
+            <b style='color:#94A3B8'>Use this for:</b>
+            <span class='insight-tag tag-green'>Structuring literature review chapters</span>
+            <span class='insight-tag tag-blue'>Identifying research sub-themes</span>
+            <span class='insight-tag tag-amber'>Claiming novelty at intersection of topics</span>
+            </div>
+            </div>
+            """, unsafe_allow_html=True)
+
             dom = Counter(lda.transform(dtm).argmax(axis=1))
             st.markdown("**Topic Share:**")
             for t in sorted(dom):
@@ -1066,6 +1450,47 @@ with tabs[8]:
                       title_fontsize=9, loc='lower right')
             plt.tight_layout(); st.pyplot(fig)
             dl_btn("Download Research Front Map", fig, "research_fronts.png")
+
+            st.markdown("""
+            <div class='insight-box red'>
+            <div class='insight-title red'>💡 How to Read & Use This</div>
+            <div class='insight-row'>
+                <div class='insight-card'>
+                    <b>Emerging Front (top-right)</b><br>
+                    Keywords that are <b>recent AND actively growing</b>. These are the
+                    hottest topics right now. A paper contributing to an Emerging Front
+                    has higher novelty value and is more likely to attract citations
+                    quickly after publication.
+                </div>
+                <div class='insight-card'>
+                    <b>Established (bottom-left)</b><br>
+                    Keywords with long history and stable recent activity —
+                    the foundational concepts. Your paper needs to
+                    <b>cite this literature</b> to anchor itself, but contributing
+                    here alone offers limited novelty.
+                </div>
+                <div class='insight-card'>
+                    <b>Classic Resurgent (bottom-right)</b><br>
+                    Older concepts gaining renewed interest. Often signals a
+                    <b>methodological revival</b> — a classic method applied to
+                    new domains. High opportunity for comparative or replication studies.
+                </div>
+                <div class='insight-card'>
+                    <b>New but Niche (top-left)</b><br>
+                    Recent concepts that haven't gained traction yet —
+                    possibly <b>ahead of their time</b>, or concepts that didn't
+                    resonate broadly. Worth monitoring but higher-risk to base a paper on.
+                </div>
+            </div>
+            <div style='margin-top:12px;font-size:0.82rem;color:#64748B'>
+            <b style='color:#94A3B8'>Use this for:</b>
+            <span class='insight-tag tag-red'>Positioning paper contribution</span>
+            <span class='insight-tag tag-blue'>Choosing research direction</span>
+            <span class='insight-tag tag-green'>Writing the "gap" section</span>
+            <span class='insight-tag tag-amber'>Forecasting where the field is heading</span>
+            </div>
+            </div>
+            """, unsafe_allow_html=True)
 
             st.markdown("**🚀 Top Emerging Research Fronts:**")
             for _,r in top_em.head(8).iterrows():
@@ -1283,3 +1708,4 @@ with tabs[10]:
         Bibliometric & Scientometric Analysis Suite</div>
         </div>
         """, unsafe_allow_html=True)
+
