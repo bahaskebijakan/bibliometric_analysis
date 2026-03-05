@@ -19,7 +19,7 @@ from pyvis.network import Network
 # PAGE CONFIG
 # ══════════════════════════════════════════════════════════════════════════════
 st.set_page_config(
-    page_title="BibloMetrix — Bibliometric Analysis Suite",
+    page_title="Bahas Kebijakan — Bibliometric Analysis Suite",
     page_icon="📚",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -337,38 +337,51 @@ def section(title):
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown("""
-    <div style='font-family:Syne,sans-serif;font-size:1.3rem;font-weight:800;
-    background:linear-gradient(135deg,#60A5FA,#A78BFA);-webkit-background-clip:text;
-    -webkit-text-fill-color:transparent;margin-bottom:0.3rem'>BibloMetrix</div>
-    <div style='color:#475569;font-size:0.78rem;margin-bottom:1.5rem'>
+    <div style='margin-bottom:0.15rem'>
+        <span style='font-family:Syne,sans-serif;font-size:1.35rem;font-weight:800;
+        background:linear-gradient(135deg,#60A5FA,#A78BFA);-webkit-background-clip:text;
+        -webkit-text-fill-color:transparent;'>Bahas Kebijakan</span>
+    </div>
+    <div style='color:#475569;font-size:0.75rem;margin-bottom:0.15rem;font-style:italic'>
+    Built by Bahas Kebijakan</div>
+    <div style='color:#334155;font-size:0.72rem;margin-bottom:1.5rem'>
     Bibliometric & Scientometric Analysis Suite</div>
     """, unsafe_allow_html=True)
 
     uploaded = st.file_uploader(
-        "Upload file bibliometrik",
+        "Upload your data file",
         type=['bib','ris','csv'],
         accept_multiple_files=True,
-        help="Scopus .bib, .ris, atau .csv — bisa upload beberapa sekaligus untuk digabung otomatis"
+        help="Scopus .bib, .ris, or .csv — upload multiple files at once to merge automatically"
     )
 
     st.markdown("---")
-    st.markdown("<div style='color:#475569;font-size:0.78rem'>⚙️ Pengaturan Analisis</div>",
+    st.markdown("<div style='color:#475569;font-size:0.78rem'>⚙️ Analysis Settings</div>",
                 unsafe_allow_html=True)
-    top_n     = st.slider("Top N items di chart", 5, 30, 15)
-    n_topics  = st.slider("Jumlah topik LDA", 2, 10, 5)
-    min_cooc  = st.slider("Min. co-occurrence keyword", 1, 10, 2)
-    dpi_label = st.selectbox("Kualitas download", ["600 DPI (publikasi)", "300 DPI (presentasi)", "150 DPI (web)"],
+    top_n     = st.slider("Top N items in charts", 5, 30, 15)
+    n_topics  = st.slider("Number of LDA topics", 2, 10, 5)
+    min_cooc  = st.slider("Min. keyword co-occurrence", 1, 10, 2)
+    dpi_label = st.selectbox("Download quality", ["600 DPI (publication)", "300 DPI (presentation)", "150 DPI (web)"],
                              index=0)
     DPI = 600 if '600' in dpi_label else 300 if '300' in dpi_label else 150
 
     st.markdown("---")
     st.markdown("""
-    <div style='color:#374151;font-size:0.73rem;line-height:1.6'>
-    📌 <b style='color:#64748B'>Cara pakai:</b><br>
-    1. Upload file .bib dari Scopus<br>
-    2. Pilih analisis di tab<br>
-    3. Download hasil (600 DPI)<br><br>
-    💡 Bisa upload <b style='color:#60A5FA'>multiple files</b> sekaligus — akan digabung otomatis
+    <div style='color:#374151;font-size:0.73rem;line-height:1.7'>
+    📌 <b style='color:#64748B'>Quick guide:</b><br>
+    1. Export your data from Scopus as <b style='color:#60A5FA'>.bib</b><br>
+    2. Upload the file above<br>
+    3. Explore results across tabs<br>
+    4. Download charts at 600 DPI<br><br>
+    💡 Upload <b style='color:#60A5FA'>multiple .bib files</b> at once — they will be merged automatically
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("""
+    <div style='color:#1E3A5F;font-size:0.7rem;text-align:center;line-height:1.6'>
+    © Bahas Kebijakan<br>
+    <span style='color:#334155'>All rights reserved</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -377,15 +390,20 @@ with st.sidebar:
 # MAIN CONTENT
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
-<div class='hero-title'>BibloMetrix</div>
-<div class='hero-sub'>World-class Bibliometric & Scientometric Analysis Suite · Optimised for Scopus .bib exports</div>
+<div style='display:flex;align-items:baseline;gap:12px;flex-wrap:wrap'>
+    <div class='hero-title'>Bahas Kebijakan</div>
+    <div style='font-family:DM Sans,sans-serif;font-size:1rem;color:#3B82F6;font-weight:500;
+    padding:3px 12px;background:#1E3A5F;border-radius:20px;white-space:nowrap'>
+    Bibliometric Suite</div>
+</div>
+<div class='hero-sub'>World-class bibliometric & scientometric analysis · Built by Bahas Kebijakan · Optimised for Scopus .bib exports</div>
 """, unsafe_allow_html=True)
 
 if not uploaded:
     st.markdown("""
     <div class='upload-hint'>
-    📂 Upload file <b>.bib</b> (Scopus), <b>.ris</b>, atau <b>.csv</b> di sidebar untuk memulai analisis.<br>
-    Bisa upload beberapa file sekaligus — akan digabung otomatis.
+    📂 Upload your <b>.bib</b> (Scopus), <b>.ris</b>, or <b>.csv</b> file in the sidebar to start.<br>
+    Multiple files are supported — they will be merged automatically.
     </div>
     """, unsafe_allow_html=True)
 
@@ -395,9 +413,9 @@ if not uploaded:
         <div style='background:#161B27;border:1px solid #1E2A40;border-radius:12px;padding:20px'>
         <div style='font-size:1.5rem'>📊</div>
         <div style='font-family:Syne,sans-serif;font-weight:700;color:#F1F5F9;margin:8px 0 4px'>
-        14+ Analisis</div>
+        14+ Analyses</div>
         <div style='color:#64748B;font-size:0.85rem'>Trends, Bradford's Law, Lotka's Law,
-        citation impact, LDA, research fronts, networks</div></div>""", unsafe_allow_html=True)
+        citation impact, LDA topic modelling, research fronts, networks</div></div>""", unsafe_allow_html=True)
     with col2:
         st.markdown("""
         <div style='background:#161B27;border:1px solid #1E2A40;border-radius:12px;padding:20px'>
@@ -412,17 +430,130 @@ if not uploaded:
         <div style='font-size:1.5rem'>⬇️</div>
         <div style='font-family:Syne,sans-serif;font-weight:700;color:#F1F5F9;margin:8px 0 4px'>
         Download 600 DPI</div>
-        <div style='color:#64748B;font-size:0.85rem'>Semua chart siap publikasi,
-        jaringan interaktif HTML, tabel CSV</div></div>""", unsafe_allow_html=True)
+        <div style='color:#64748B;font-size:0.85rem'>Publication-ready charts,
+        interactive HTML networks, and CSV tables</div></div>""", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── How to Get Data guide (shown on landing page too) ────────────────────
+    st.markdown("""
+    <div class='section-header'>📥 How to Export Data from Scopus</div>
+    """, unsafe_allow_html=True)
+
+    step_col1, step_col2 = st.columns([1, 1])
+
+    with step_col1:
+        st.markdown("""
+        <div style='background:#161B27;border:1px solid #1E2A40;border-radius:12px;padding:24px;line-height:2'>
+        <div style='font-family:Syne,sans-serif;font-weight:700;color:#60A5FA;margin-bottom:12px;font-size:1rem'>
+        Step-by-step Guide</div>
+
+        <div style='display:flex;gap:12px;margin-bottom:10px'>
+            <div style='background:#1E3A5F;color:#60A5FA;font-weight:700;font-family:Syne,sans-serif;
+            min-width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+            justify-content:center;font-size:0.8rem;margin-top:2px'>1</div>
+            <div style='color:#CBD5E1;font-size:0.88rem'>Go to <b style='color:#F1F5F9'>scopus.com</b>
+            and sign in using your <b style='color:#60A5FA'>institutional email</b>
+            (university or research institution account)</div>
+        </div>
+
+        <div style='display:flex;gap:12px;margin-bottom:10px'>
+            <div style='background:#1E3A5F;color:#60A5FA;font-weight:700;font-family:Syne,sans-serif;
+            min-width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+            justify-content:center;font-size:0.8rem;margin-top:2px'>2</div>
+            <div style='color:#CBD5E1;font-size:0.88rem'>In the search bar, enter your
+            <b style='color:#F1F5F9'>keyword(s)</b> — e.g. <i>"multi-criteria analysis"</i> or
+            <i>"AHP weighting"</i>. Apply filters (year range, document type, subject area) as needed</div>
+        </div>
+
+        <div style='display:flex;gap:12px;margin-bottom:10px'>
+            <div style='background:#1E3A5F;color:#60A5FA;font-weight:700;font-family:Syne,sans-serif;
+            min-width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+            justify-content:center;font-size:0.8rem;margin-top:2px'>3</div>
+            <div style='color:#CBD5E1;font-size:0.88rem'>Tick the checkbox at the top of the results list,
+            then click <b style='color:#F1F5F9'>"Select all [N] documents"</b>
+            (not just the current page)</div>
+        </div>
+
+        <div style='display:flex;gap:12px;margin-bottom:10px'>
+            <div style='background:#1E3A5F;color:#60A5FA;font-weight:700;font-family:Syne,sans-serif;
+            min-width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+            justify-content:center;font-size:0.8rem;margin-top:2px'>4</div>
+            <div style='color:#CBD5E1;font-size:0.88rem'>Click the <b style='color:#F1F5F9'>Export</b>
+            button → choose <b style='color:#60A5FA'>BibTeX</b> format</div>
+        </div>
+
+        <div style='display:flex;gap:12px;margin-bottom:10px'>
+            <div style='background:#1E3A5F;color:#60A5FA;font-weight:700;font-family:Syne,sans-serif;
+            min-width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+            justify-content:center;font-size:0.8rem;margin-top:2px'>5</div>
+            <div style='color:#CBD5E1;font-size:0.88rem'>In the export dialog, make sure to check:
+            <b style='color:#F1F5F9'>Citation information</b>,
+            <b style='color:#F1F5F9'>Bibliographical information</b>,
+            <b style='color:#F1F5F9'>Abstract & keywords</b>, and
+            <b style='color:#F1F5F9'>Other information</b> (includes citation count)</div>
+        </div>
+
+        <div style='display:flex;gap:12px'>
+            <div style='background:#1E3A5F;color:#60A5FA;font-weight:700;font-family:Syne,sans-serif;
+            min-width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+            justify-content:center;font-size:0.8rem;margin-top:2px'>6</div>
+            <div style='color:#CBD5E1;font-size:0.88rem'>Click <b style='color:#F1F5F9'>Export</b>.
+            You will get a <b style='color:#60A5FA'>.bib file</b> — upload it directly to this tool</div>
+        </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with step_col2:
+        st.markdown("""
+        <div style='background:#161B27;border:1px solid #1E2A40;border-radius:12px;padding:24px'>
+        <div style='font-family:Syne,sans-serif;font-weight:700;color:#60A5FA;margin-bottom:16px;font-size:1rem'>
+        Important Notes</div>
+
+        <div style='background:#0F1117;border-left:3px solid #F59E0B;border-radius:0 8px 8px 0;
+        padding:12px 16px;margin-bottom:12px'>
+            <div style='color:#FCD34D;font-weight:600;font-size:0.82rem;margin-bottom:4px'>⚠️ Batch export limit</div>
+            <div style='color:#94A3B8;font-size:0.82rem'>Scopus exports a maximum of
+            <b style='color:#F1F5F9'>2,000 records per file</b>. If your results exceed 2,000,
+            split by year range and upload all batches here — they will be merged automatically.</div>
+        </div>
+
+        <div style='background:#0F1117;border-left:3px solid #3B82F6;border-radius:0 8px 8px 0;
+        padding:12px 16px;margin-bottom:12px'>
+            <div style='color:#60A5FA;font-weight:600;font-size:0.82rem;margin-bottom:4px'>💡 Institutional access required</div>
+            <div style='color:#94A3B8;font-size:0.82rem'>Scopus is a subscription database.
+            You must log in with an <b style='color:#F1F5F9'>institutional email</b>
+            (university or research body). Personal Gmail will not work.</div>
+        </div>
+
+        <div style='background:#0F1117;border-left:3px solid #22C55E;border-radius:0 8px 8px 0;
+        padding:12px 16px;margin-bottom:12px'>
+            <div style='color:#4ADE80;font-weight:600;font-size:0.82rem;margin-bottom:4px'>✅ Supported formats</div>
+            <div style='color:#94A3B8;font-size:0.82rem'>
+            <b style='color:#F1F5F9'>.bib</b> — Scopus BibTeX (recommended)<br>
+            <b style='color:#F1F5F9'>.ris</b> — RIS format<br>
+            <b style='color:#F1F5F9'>.csv</b> — Scopus or Web of Science CSV</div>
+        </div>
+
+        <div style='background:#0F1117;border-left:3px solid #A78BFA;border-radius:0 8px 8px 0;
+        padding:12px 16px'>
+            <div style='color:#C4B5FD;font-weight:600;font-size:0.82rem;margin-bottom:4px'>🔑 Required fields for full analysis</div>
+            <div style='color:#94A3B8;font-size:0.82rem'>For best results, make sure to include
+            <b style='color:#F1F5F9'>Abstract & keywords</b> when exporting — these are needed
+            for keyword analysis, LDA topic modelling, and research front mapping.</div>
+        </div>
+        </div>
+        """, unsafe_allow_html=True)
+
     st.stop()
 
 
 # ── Load data ─────────────────────────────────────────────────────────────────
-with st.spinner("⏳ Memuat dan memproses data..."):
+with st.spinner("⏳ Loading and processing data..."):
     df = load_and_merge(uploaded)
 
 if df.empty or len(df) == 0:
-    st.error("Tidak ada data yang berhasil di-parse. Pastikan format file benar.")
+    st.error("No data could be parsed. Please check your file format.")
     st.stop()
 
 # ── Pre-compute common values ─────────────────────────────────────────────────
@@ -445,16 +576,16 @@ for _, row in df.iterrows():
 
 
 # ── KPI Dashboard ─────────────────────────────────────────────────────────────
-st.success(f"✅ **{total_pubs:,} records** berhasil dimuat dari {len(uploaded)} file(s)")
+st.success(f"✅ **{total_pubs:,} records** loaded from {len(uploaded)} file(s)")
 
 kpis = [
-    ("📄", "Total Publikasi",    f"{total_pubs:,}"),
-    ("📅", "Rentang Tahun",      year_span),
+    ("📄", "Total Publications", f"{total_pubs:,}"),
+    ("📅", "Year Span",          year_span),
     ("✍️", "Unique Authors",     f"{unique_authors:,}"),
     ("📰", "Unique Journals",    f"{unique_jnls:,}"),
-    ("📊", "Total Sitasi",       f"{total_cites:,.0f}"),
-    ("⭐", "Mean Sitasi/Paper",  f"{avg_cites:.1f}"),
-    ("📈", "Median Sitasi",      f"{median_cites:.0f}"),
+    ("📊", "Total Citations",    f"{total_cites:,.0f}"),
+    ("⭐", "Mean Cites/Paper",   f"{avg_cites:.1f}"),
+    ("📈", "Median Citations",   f"{median_cites:.0f}"),
     ("🏆", "Corpus H-Index",     f"{h_index}"),
     ("🤝", "Collaboration Rate", f"{collab_rate:.1f}%"),
     ("🔓", "Open Access Rate",   f"{oa_rate:.1f}%"),
@@ -482,6 +613,7 @@ tabs = st.tabs([
     "🧠 Topics (LDA)",
     "🚀 Research Fronts",
     "⬇️ Export All",
+    "📥 How to Get Data",
 ])
 
 
@@ -875,7 +1007,7 @@ with tabs[7]:
                 pct = dom[t]/len(abstracts)*100
                 st.markdown(f"- **Topic {t+1}** ({pct:.1f}%): {', '.join(topics[t][:5])}")
         except Exception as ex:
-            st.error(f"LDA error: {ex}. Coba kurangi jumlah topik atau upload lebih banyak data.")
+            st.error(f"LDA error: {ex}. Try reducing the number of topics or upload more data.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -950,12 +1082,12 @@ with tabs[9]:
     st.markdown("""
     <div style='background:#161B27;border:1px solid #1E2A40;border-radius:10px;
     padding:16px;margin-bottom:1rem;color:#94A3B8;font-size:0.88rem'>
-    Download semua hasil analisis dalam satu ZIP file. Berisi semua tabel CSV yang bisa
-    dibuka di Excel, siap untuk laporan dan publikasi.
+    Download all analysis results in a single ZIP file — all tables as CSV,
+    ready to open in Excel or import into your report.
     </div>""", unsafe_allow_html=True)
 
     if st.button("📦 Generate & Download All CSVs (ZIP)", use_container_width=True):
-        with st.spinner("Menyiapkan semua file..."):
+        with st.spinner("Preparing all files..."):
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
 
@@ -998,14 +1130,156 @@ with tabs[9]:
                                      columns=['country','papers']).sort_values('papers',ascending=False)
                 zf.writestr('country_output.csv', c_df2.to_csv(index=False))
 
-
-
             zip_buf.seek(0)
             st.download_button(
-                label="⬇️ Download ZIP (semua CSV)",
+                label="⬇️ Download ZIP (all CSVs)",
                 data=zip_buf.read(),
                 file_name="bibliometric_results.zip",
                 mime="application/zip",
                 use_container_width=True,
             )
-        st.success("✅ Semua file siap!")
+        st.success("✅ All files ready!")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 11 — HOW TO GET DATA
+# ══════════════════════════════════════════════════════════════════════════════
+with tabs[10]:
+    section("📥 How to Export Data from Scopus")
+
+    st.markdown("""
+    <div style='color:#64748B;font-size:0.9rem;margin-bottom:1.5rem'>
+    This tool is optimised for <b style='color:#60A5FA'>Scopus BibTeX (.bib)</b> exports.
+    Follow the steps below to get your data from Scopus.
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_l, col_r = st.columns([1, 1])
+
+    with col_l:
+        st.markdown("""
+        <div style='background:#161B27;border:1px solid #1E2A40;border-radius:12px;padding:24px;line-height:2'>
+        <div style='font-family:Syne,sans-serif;font-weight:700;color:#60A5FA;margin-bottom:16px;font-size:1rem'>
+        Step-by-step Export Guide</div>
+
+        <div style='display:flex;gap:12px;margin-bottom:14px'>
+            <div style='background:#1E3A5F;color:#60A5FA;font-weight:700;font-family:Syne,sans-serif;
+            min-width:28px;height:28px;border-radius:50%;display:flex;align-items:center;
+            justify-content:center;font-size:0.82rem;flex-shrink:0;margin-top:1px'>1</div>
+            <div style='color:#CBD5E1;font-size:0.88rem'>Go to
+            <b style='color:#F1F5F9'>scopus.com</b> and sign in with your
+            <b style='color:#60A5FA'>institutional email</b>
+            (university or research institution account required)</div>
+        </div>
+
+        <div style='display:flex;gap:12px;margin-bottom:14px'>
+            <div style='background:#1E3A5F;color:#60A5FA;font-weight:700;font-family:Syne,sans-serif;
+            min-width:28px;height:28px;border-radius:50%;display:flex;align-items:center;
+            justify-content:center;font-size:0.82rem;flex-shrink:0;margin-top:1px'>2</div>
+            <div style='color:#CBD5E1;font-size:0.88rem'>Type your search keyword(s) in the search bar —
+            e.g. <i style='color:#94A3B8'>"multi-criteria analysis"</i>,
+            <i style='color:#94A3B8'>"AHP weighting"</i>,
+            <i style='color:#94A3B8'>"bibliometric"</i>.
+            Apply filters for year range, document type, or subject area as needed</div>
+        </div>
+
+        <div style='display:flex;gap:12px;margin-bottom:14px'>
+            <div style='background:#1E3A5F;color:#60A5FA;font-weight:700;font-family:Syne,sans-serif;
+            min-width:28px;height:28px;border-radius:50%;display:flex;align-items:center;
+            justify-content:center;font-size:0.82rem;flex-shrink:0;margin-top:1px'>3</div>
+            <div style='color:#CBD5E1;font-size:0.88rem'>Tick the checkbox at the top of the results list →
+            click <b style='color:#F1F5F9'>"Select all [N] documents"</b>
+            (not just the ones on the current page)</div>
+        </div>
+
+        <div style='display:flex;gap:12px;margin-bottom:14px'>
+            <div style='background:#1E3A5F;color:#60A5FA;font-weight:700;font-family:Syne,sans-serif;
+            min-width:28px;height:28px;border-radius:50%;display:flex;align-items:center;
+            justify-content:center;font-size:0.82rem;flex-shrink:0;margin-top:1px'>4</div>
+            <div style='color:#CBD5E1;font-size:0.88rem'>Click the <b style='color:#F1F5F9'>Export</b>
+            button → select format: <b style='color:#60A5FA'>BibTeX</b></div>
+        </div>
+
+        <div style='display:flex;gap:12px;margin-bottom:14px'>
+            <div style='background:#1E3A5F;color:#60A5FA;font-weight:700;font-family:Syne,sans-serif;
+            min-width:28px;height:28px;border-radius:50%;display:flex;align-items:center;
+            justify-content:center;font-size:0.82rem;flex-shrink:0;margin-top:1px'>5</div>
+            <div style='color:#CBD5E1;font-size:0.88rem'>In the export dialog, check all these fields:<br>
+            <span style='color:#4ADE80'>✓</span> <b style='color:#F1F5F9'>Citation information</b><br>
+            <span style='color:#4ADE80'>✓</span> <b style='color:#F1F5F9'>Bibliographical information</b><br>
+            <span style='color:#4ADE80'>✓</span> <b style='color:#F1F5F9'>Abstract & keywords</b>
+            <span style='color:#F59E0B;font-size:0.78rem'> ← important for keyword & topic analysis</span><br>
+            <span style='color:#4ADE80'>✓</span> <b style='color:#F1F5F9'>Other information</b>
+            <span style='color:#F59E0B;font-size:0.78rem'> ← includes citation count</span></div>
+        </div>
+
+        <div style='display:flex;gap:12px'>
+            <div style='background:#1E3A5F;color:#60A5FA;font-weight:700;font-family:Syne,sans-serif;
+            min-width:28px;height:28px;border-radius:50%;display:flex;align-items:center;
+            justify-content:center;font-size:0.82rem;flex-shrink:0;margin-top:1px'>6</div>
+            <div style='color:#CBD5E1;font-size:0.88rem'>Click <b style='color:#F1F5F9'>Export</b>.
+            A <b style='color:#60A5FA'>.bib file</b> will download automatically →
+            upload it in the sidebar to start your analysis</div>
+        </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_r:
+        st.markdown("""
+        <div style='background:#161B27;border:1px solid #1E2A40;border-radius:12px;padding:24px;'>
+        <div style='font-family:Syne,sans-serif;font-weight:700;color:#60A5FA;margin-bottom:16px;font-size:1rem'>
+        Important Notes</div>
+
+        <div style='background:#0F1117;border-left:3px solid #F59E0B;border-radius:0 8px 8px 0;
+        padding:12px 16px;margin-bottom:12px'>
+            <div style='color:#FCD34D;font-weight:600;font-size:0.82rem;margin-bottom:5px'>
+            ⚠️  2,000 records per file limit</div>
+            <div style='color:#94A3B8;font-size:0.82rem;line-height:1.6'>
+            Scopus exports a maximum of <b style='color:#F1F5F9'>2,000 records per file</b>.
+            If your search returns more, split the export by year range
+            (e.g. 2010–2015, 2016–2020, 2021–2026), then upload all files here at once —
+            they will be merged automatically.</div>
+        </div>
+
+        <div style='background:#0F1117;border-left:3px solid #3B82F6;border-radius:0 8px 8px 0;
+        padding:12px 16px;margin-bottom:12px'>
+            <div style='color:#60A5FA;font-weight:600;font-size:0.82rem;margin-bottom:5px'>
+            💡  Institutional access required</div>
+            <div style='color:#94A3B8;font-size:0.82rem;line-height:1.6'>
+            Scopus is a subscription database. You must log in with an
+            <b style='color:#F1F5F9'>institutional email</b> from a university or research body.
+            Personal Gmail or Yahoo accounts will not have access.</div>
+        </div>
+
+        <div style='background:#0F1117;border-left:3px solid #22C55E;border-radius:0 8px 8px 0;
+        padding:12px 16px;margin-bottom:12px'>
+            <div style='color:#4ADE80;font-weight:600;font-size:0.82rem;margin-bottom:5px'>
+            ✅  Supported file formats</div>
+            <div style='color:#94A3B8;font-size:0.82rem;line-height:1.6'>
+            <b style='color:#F1F5F9'>.bib</b> — Scopus BibTeX <span style='color:#60A5FA'>(recommended)</span><br>
+            <b style='color:#F1F5F9'>.ris</b> — RIS format (Scopus / Mendeley)<br>
+            <b style='color:#F1F5F9'>.csv</b> — Scopus CSV or Web of Science CSV</div>
+        </div>
+
+        <div style='background:#0F1117;border-left:3px solid #A78BFA;border-radius:0 8px 8px 0;
+        padding:12px 16px'>
+            <div style='color:#C4B5FD;font-weight:600;font-size:0.82rem;margin-bottom:5px'>
+            🔑  Fields needed for full analysis</div>
+            <div style='color:#94A3B8;font-size:0.82rem;line-height:1.6'>
+            Always include <b style='color:#F1F5F9'>Abstract & keywords</b> when exporting.
+            These fields are required for keyword frequency, word clouds,
+            LDA topic modelling, and research front mapping.
+            Without them, several analysis tabs will show limited results.</div>
+        </div>
+        </div>
+
+        <div style='background:#161B27;border:1px solid #1E2A40;border-radius:12px;
+        padding:20px;margin-top:12px;text-align:center'>
+        <div style='color:#475569;font-size:0.78rem;margin-bottom:6px'>Built by</div>
+        <div style='font-family:Syne,sans-serif;font-size:1.3rem;font-weight:800;
+        background:linear-gradient(135deg,#60A5FA,#A78BFA);-webkit-background-clip:text;
+        -webkit-text-fill-color:transparent;'>Bahas Kebijakan</div>
+        <div style='color:#334155;font-size:0.75rem;margin-top:4px'>
+        Bibliometric & Scientometric Analysis Suite</div>
+        </div>
+        """, unsafe_allow_html=True)
