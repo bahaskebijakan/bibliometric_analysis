@@ -2,17 +2,28 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import networkx as nx
-from wordcloud import WordCloud, STOPWORDS
 from collections import Counter
 from itertools import combinations
 import re, os, io, zipfile, tempfile
 
-import rispy                                          # for .ris files only
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
-from pyvis.network import Network
+
+# Optional heavy deps — imported lazily to avoid startup crash on Streamlit Cloud
+def _wordcloud(freq, **kw):
+    try:
+        from wordcloud import WordCloud
+        return WordCloud(**kw).generate_from_frequencies(freq)
+    except ImportError:
+        return None
+
+def _get_pyvis():
+    try:
+        from pyvis.network import Network
+        return Network
+    except ImportError:
+        return None
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE CONFIG
@@ -455,7 +466,12 @@ parse_scopus_bib = parse_bib
 
 def parse_ris(content: str) -> pd.DataFrame:
     import io as _io
-    entries = rispy.load(_io.StringIO(content))
+    try:
+        import rispy
+        entries = rispy.load(_io.StringIO(content))
+    except ImportError:
+        st.error("rispy is not installed. Cannot parse .ris files.")
+        return pd.DataFrame()
     MAP = {'title':['title','primary_title'],'authors':['authors','first_authors'],
            'year':['year','publication_year'],'journal':['journal_name','secondary_title'],
            'abstract':['abstract'],'author_keywords':['keywords'],
@@ -1249,7 +1265,6 @@ with tabs[4]:
     if len(auth_kw_all) < 10:
         using_abstract_fallback = True
         try:
-            from sklearn.feature_extraction.text import TfidfVectorizer
             abs_series = df['abstract'].fillna('').astype(str)
             abs_ok = abs_series[abs_series.str.len() > 80]
             if len(abs_ok) >= 5:
@@ -1290,9 +1305,14 @@ with tabs[4]:
     axes[0,1].set_title('Top Scopus Index Keywords'); axes[0,1].set_xlabel('Frequency')
 
     if auth_kw_freq:
-        wc = WordCloud(width=700, height=320, background_color='#161B27',
-                       colormap='Blues', max_words=80).generate_from_frequencies(auth_kw_freq)
-        axes[1,0].imshow(wc, interpolation='bilinear'); axes[1,0].axis('off')
+        wc = _wordcloud(auth_kw_freq, width=700, height=320, background_color='#161B27',
+                        colormap='Blues', max_words=80)
+        if wc:
+            axes[1,0].imshow(wc, interpolation='bilinear')
+        else:
+            axes[1,0].text(0.5, 0.5, 'wordcloud not available', ha='center', va='center',
+                           color='#64748B', transform=axes[1,0].transAxes)
+        axes[1,0].axis('off')
         axes[1,0].set_title('Author Keyword Cloud' if not using_abstract_fallback else 'Abstract Term Cloud')
     else:
         axes[1,0].text(0.5, 0.5, 'No keyword data available', ha='center', va='center',
@@ -1300,9 +1320,14 @@ with tabs[4]:
         axes[1,0].axis('off')
 
     if idx_kw_freq:
-        wc2 = WordCloud(width=700, height=320, background_color='#161B27',
-                        colormap='Greens', max_words=80).generate_from_frequencies(idx_kw_freq)
-        axes[1,1].imshow(wc2, interpolation='bilinear'); axes[1,1].axis('off')
+        wc2 = _wordcloud(idx_kw_freq, width=700, height=320, background_color='#161B27',
+                         colormap='Greens', max_words=80)
+        if wc2:
+            axes[1,1].imshow(wc2, interpolation='bilinear')
+        else:
+            axes[1,1].text(0.5, 0.5, 'wordcloud not available', ha='center', va='center',
+                           color='#64748B', transform=axes[1,1].transAxes)
+        axes[1,1].axis('off')
         axes[1,1].set_title('Index Keyword Cloud')
     else:
         axes[1,1].text(0.5, 0.5, 'No index keyword data\n(not available in Dimensions exports)',
@@ -1507,7 +1532,6 @@ with tabs[6]:
         if has_kw < 10:
             # Fallback: extract top TF-IDF terms per abstract
             try:
-                from sklearn.feature_extraction.text import TfidfVectorizer
                 abs_series = df['abstract'].fillna('').astype(str)
                 abs_series = abs_series[abs_series.str.len() > 80]
                 if len(abs_series) >= 10:
@@ -1600,27 +1624,31 @@ with tabs[6]:
     # Interactive PyVis
     st.markdown("---")
     if st.button("🕸️ Generate Interactive Network (HTML)", use_container_width=True):
-        with st.spinner("Building interactive network..."):
-            deg_thresh = max(1, int(np.percentile(list(deg_c.values()), 70))) if deg_c else 1
-            SG2 = G.subgraph([n for n,d in deg_c.items() if d >= deg_thresh])
-            nv  = Network(height='600px', width='100%', bgcolor='#0F1117',
-                          font_color='#CBD5E1', notebook=False)
-            nv.barnes_hut(gravity=-8000, central_gravity=0.3, spring_length=120)
-            for node in SG2.nodes():
-                d = SG2.degree(node); b = btw_c.get(node,0)
-                nv.add_node(node, label=node, size=d*4+6,
-                            color=f'rgba(59,130,246,{min(0.3+b*15,1):.2f})',
-                            title=f'{node}\nDegree: {d}\nBetweenness: {b:.4f}')
-            for u,v,d in SG2.edges(data=True):
-                nv.add_edge(u,v,width=d.get('weight',1)*0.6)
-            with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as tmp:
-                nv.save_graph(tmp.name)
-                with open(tmp.name, 'r') as f: html_str = f.read()
-            st.download_button("⬇️ Download Interactive Network (HTML)",
-                               data=html_str.encode(),
-                               file_name="author_network_interactive.html",
-                               mime='text/html', use_container_width=True)
-            st.components.v1.html(html_str, height=620)
+        NetworkCls = _get_pyvis()
+        if NetworkCls is None:
+            st.error("pyvis is not available in this environment. Interactive network unavailable.")
+        else:
+            with st.spinner("Building interactive network..."):
+                deg_thresh = max(1, int(np.percentile(list(deg_c.values()), 70))) if deg_c else 1
+                SG2 = G.subgraph([n for n,d in deg_c.items() if d >= deg_thresh])
+                nv  = NetworkCls(height='600px', width='100%', bgcolor='#0F1117',
+                              font_color='#CBD5E1', notebook=False)
+                nv.barnes_hut(gravity=-8000, central_gravity=0.3, spring_length=120)
+                for node in SG2.nodes():
+                    d = SG2.degree(node); b = btw_c.get(node,0)
+                    nv.add_node(node, label=node, size=d*4+6,
+                                color=f'rgba(59,130,246,{min(0.3+b*15,1):.2f})',
+                                title=f'{node}\nDegree: {d}\nBetweenness: {b:.4f}')
+                for u,v,d in SG2.edges(data=True):
+                    nv.add_edge(u,v,width=d.get('weight',1)*0.6)
+                with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as tmp:
+                    nv.save_graph(tmp.name)
+                    with open(tmp.name, 'r') as fh: html_str = fh.read()
+                st.download_button("⬇️ Download Interactive Network (HTML)",
+                                   data=html_str.encode(),
+                                   file_name="author_network_interactive.html",
+                                   mime='text/html', use_container_width=True)
+                st.components.v1.html(html_str, height=620)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1757,7 +1785,6 @@ with tabs[8]:
     # If no author keywords (e.g. Dimensions), derive from abstracts
     if len(kw_recs) < 10:
         try:
-            from sklearn.feature_extraction.text import TfidfVectorizer
             abs_df = df[df['abstract'].str.len() > 80][['abstract','year']].dropna()
             if len(abs_df) >= 10:
                 tfidf = TfidfVectorizer(
