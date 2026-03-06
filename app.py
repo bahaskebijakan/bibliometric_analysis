@@ -874,6 +874,30 @@ for icon, label, val in kpis:
 kpi_html += "</div>"
 st.markdown(kpi_html, unsafe_allow_html=True)
 
+# ── Important Note ─────────────────────────────────────────────────────────────
+st.markdown("""
+<div style='background:linear-gradient(135deg,#0F1B2D 0%,#0D1F33 100%);
+border:1px solid #1E3A5F;border-left:4px solid #F59E0B;border-radius:0 10px 10px 0;
+padding:16px 20px;margin:1.2rem 0;display:flex;gap:14px;align-items:flex-start'>
+<div style='font-size:1.4rem;line-height:1;flex-shrink:0;margin-top:2px'>📌</div>
+<div>
+<div style='font-family:Syne,sans-serif;font-weight:700;color:#FCD34D;
+font-size:0.88rem;margin-bottom:6px;letter-spacing:0.02em'>
+IMPORTANT NOTE ON BIBLIOMETRIC ANALYSIS
+</div>
+<div style='color:#CBD5E1;font-size:0.84rem;line-height:1.75'>
+Bibliometric analysis is used as an <b style='color:#F1F5F9'>initial mapping of the literature</b>
+to identify research trends, commonly used keywords, influential authors, and relationships between topics.<br>
+However, to properly identify <b style='color:#F1F5F9'>research gaps, arguments, and contributions</b>,
+researchers still need to read and critically review the relevant articles.
+Bibliometric results should therefore be used as a
+<b style='color:#FCD34D'>guiding tool for navigating the literature</b>,
+not as a substitute for in-depth literature review.
+</div>
+</div>
+</div>
+""", unsafe_allow_html=True)
+
 # ══════════════════════════════════════════════════════════════════════════════
 # TABS
 # ══════════════════════════════════════════════════════════════════════════════
