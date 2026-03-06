@@ -235,41 +235,108 @@ plt.rcParams.update({
 })
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PARSERS
+# PARSERS  —  Auto-detects Scopus vs Dimensions BIB
 # ══════════════════════════════════════════════════════════════════════════════
-def parse_scopus_bib(content: str) -> pd.DataFrame:
-    raw = re.sub(r'^[^@]+(?=@)', '', content, count=1)
+
+def _detect_bib_source(content: str) -> str:
+    """Return 'scopus', 'dimensions', or 'generic'."""
+    if re.search(r'^Scopus\s*\nEXPORT DATE', content, re.IGNORECASE | re.MULTILINE):
+        return 'scopus'
+    if re.search(r'@article\{pub\.\d+', content[:500]):
+        return 'dimensions'
+    # Fallback: check for Scopus-specific fields
+    if 'author_keywords' in content[:3000]:
+        return 'scopus'
+    return 'generic'
+
+
+def _parse_bib_entries(content: str):
+    """Strip non-BIB header and parse all entries with bibtexparser."""
+    raw = re.sub(r'^[^@]+(?=@)', '', content, count=1)  # strip Scopus header
     parser = bibtexparser.bparser.BibTexParser(common_strings=True)
     parser.ignore_nonstandard_types = False
-    bib_db = bibtexparser.loads(raw, parser)
+    parser.homogenise_fields = False
+    return bibtexparser.loads(raw, parser).entries
+
+
+def parse_bib(content: str) -> pd.DataFrame:
+    """Universal BIB parser — handles Scopus, Dimensions, and generic BibTeX."""
+    source = _detect_bib_source(content)
+    entries = _parse_bib_entries(content)
     rows = []
-    for e in bib_db.entries:
-        note  = e.get('note', '')
-        m     = re.search(r'Cited by:\s*(\d+)', note)
-        cited = int(m.group(1)) if m else np.nan
-        if   'Gold Open Access'  in note: oa = 'Gold OA'
-        elif 'Hybrid Gold'       in note: oa = 'Hybrid OA'
-        elif 'Green'             in note: oa = 'Green OA'
-        elif 'Open Access'       in note: oa = 'Open Access'
-        else:                             oa = 'Closed'
-        auth_kw = e.get('author_keywords', '')
-        idx_kw  = e.get('keywords', '')
+
+    for e in entries:
+        title = e.get('title', '').replace('{', '').replace('}', '').strip()
+        authors = e.get('author', '')
+        doi = e.get('doi', '')
+        abstract = e.get('abstract', '')
+        journal = e.get('journal', e.get('booktitle', e.get('publisher', '')))
+
+        # ── Year: prefer 'year'; fall back to 'date' (Dimensions: "2024-03-15") ──
+        year_raw = e.get('year', '') or e.get('date', '')
+        year_m = re.search(r'\b(19|20)\d{2}\b', str(year_raw))
+        year = year_m.group(0) if year_m else ''
+
+        # ── Document type ────────────────────────────────────────────────────────
+        doc_type = e.get('type', e.get('ENTRYTYPE', 'Unknown'))
+
+        # ── Source-specific field extraction ────────────────────────────────────
+        if source == 'scopus':
+            note  = e.get('note', '')
+            m     = re.search(r'Cited by:\s*(\d+)', note)
+            cited = int(m.group(1)) if m else np.nan
+            if   'Gold Open Access' in note: oa = 'Gold OA'
+            elif 'Hybrid Gold'      in note: oa = 'Hybrid OA'
+            elif 'Green'            in note: oa = 'Green OA'
+            elif 'Open Access'      in note: oa = 'Open Access'
+            else:                            oa = 'Closed'
+            auth_kw  = e.get('author_keywords', '')
+            idx_kw   = e.get('keywords', '')
+            affiliations = e.get('affiliations', e.get('affiliation', ''))
+
+        elif source == 'dimensions':
+            # Dimensions has NO citation count in BIB export — leave NaN
+            cited = np.nan
+            oa = 'Unknown'
+            # 'keywords' field exists but is always empty in Dimensions BIB —
+            # extract from abstract as best-effort fallback
+            auth_kw  = e.get('keywords', '')   # usually empty
+            idx_kw   = ''
+            affiliations = e.get('affiliations', '')
+
+        else:  # generic BibTeX
+            note  = e.get('note', '')
+            m     = re.search(r'Cited by:\s*(\d+)', note)
+            cited = int(m.group(1)) if m else np.nan
+            oa = 'Unknown'
+            auth_kw  = e.get('author_keywords', e.get('keywords', ''))
+            idx_kw   = ''
+            affiliations = e.get('affiliations', e.get('affiliation', ''))
+
         rows.append({
-            'title':           e.get('title','').replace('{','').replace('}','').strip(),
-            'authors':         e.get('author',''),
-            'year':            e.get('year',''),
-            'journal':         e.get('journal', e.get('booktitle', '')),
-            'doi':             e.get('doi',''),
-            'abstract':        e.get('abstract',''),
+            'title':           title,
+            'authors':         authors,
+            'year':            year,
+            'journal':         journal,
+            'doi':             doi,
+            'abstract':        abstract,
             'author_keywords': auth_kw,
             'index_keywords':  idx_kw,
-            'keywords':        '; '.join(filter(None,[auth_kw, idx_kw])),
+            'keywords':        '; '.join(filter(None, [auth_kw, idx_kw])),
             'cited_by':        cited,
             'oa_status':       oa,
-            'document_type':   e.get('type', e.get('ENTRYTYPE','Unknown')),
-            'affiliations':    e.get('affiliations', e.get('affiliation','')),
+            'document_type':   doc_type,
+            'affiliations':    affiliations,
+            '_source':         source,   # track origin for UI badge
         })
-    return pd.DataFrame(rows)
+
+    df = pd.DataFrame(rows)
+    df['_source'] = source
+    return df
+
+
+# Keep alias for backwards compatibility
+parse_scopus_bib = parse_bib
 
 
 def parse_ris(content: str) -> pd.DataFrame:
@@ -315,13 +382,22 @@ def parse_csv(content: str) -> pd.DataFrame:
 
 def load_and_merge(uploaded_files) -> pd.DataFrame:
     frames = []
+    source_log = []   # for UI badge display
     for f in uploaded_files:
         content = f.read().decode('utf-8', errors='replace')
         ext = os.path.splitext(f.name)[1].lower()
-        if ext in ('.bib','.bibtex'): frames.append(parse_scopus_bib(content))
-        elif ext == '.ris':           frames.append(parse_ris(content))
-        elif ext == '.csv':           frames.append(parse_csv(content))
-    if not frames: return pd.DataFrame()
+        if ext in ('.bib', '.bibtex'):
+            parsed = parse_bib(content)
+            src = _detect_bib_source(content)
+            source_log.append((f.name, src, len(parsed)))
+            frames.append(parsed)
+        elif ext == '.ris':
+            frames.append(parse_ris(content))
+            source_log.append((f.name, 'ris', len(frames[-1])))
+        elif ext == '.csv':
+            frames.append(parse_csv(content))
+            source_log.append((f.name, 'csv', len(frames[-1])))
+    if not frames: return pd.DataFrame(), []
     df = pd.concat(frames, ignore_index=True)
 
     CANONICAL = ['title','authors','year','journal','keywords','author_keywords',
@@ -364,7 +440,7 @@ def load_and_merge(uploaded_files) -> pd.DataFrame:
     df['country_list'] = df['affiliations'].apply(
         lambda x: list(dict.fromkeys(_cnorm.get(c.title(),c.title())
                        for c in _cpat.findall(str(x)))) if pd.notna(x) else [])
-    return df
+    return df, source_log
 
 
 
@@ -609,11 +685,37 @@ if not uploaded:
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 with st.spinner("⏳ Loading and processing data..."):
-    df = load_and_merge(uploaded)
+    df, source_log = load_and_merge(uploaded)
 
 if df.empty or len(df) == 0:
     st.error("No data could be parsed. Please check your file format.")
     st.stop()
+
+# ── Source badge banner ────────────────────────────────────────────────────────
+src_badge_map = {
+    'scopus':     ('<span style="background:#1E3A5F;color:#60A5FA;padding:2px 10px;border-radius:12px;font-size:0.75rem;font-weight:700">Scopus .bib</span>', '🔵'),
+    'dimensions': ('<span style="background:#14532D;color:#4ADE80;padding:2px 10px;border-radius:12px;font-size:0.75rem;font-weight:700">Dimensions .bib</span>', '🟢'),
+    'ris':        ('<span style="background:#451A03;color:#FCD34D;padding:2px 10px;border-radius:12px;font-size:0.75rem;font-weight:700">RIS</span>', '🟡'),
+    'csv':        ('<span style="background:#2E1065;color:#C4B5FD;padding:2px 10px;border-radius:12px;font-size:0.75rem;font-weight:700">CSV</span>', '🟣'),
+    'generic':    ('<span style="background:#1E2A40;color:#94A3B8;padding:2px 10px;border-radius:12px;font-size:0.75rem;font-weight:700">BibTeX</span>', '⚪'),
+}
+badge_html = ' &nbsp;'.join(
+    f"{src_badge_map.get(src, src_badge_map['generic'])[0]} <span style='color:#64748B;font-size:0.78rem'>{fname} ({n} records)</span>"
+    for fname, src, n in source_log
+)
+st.markdown(f"""
+<div style='background:#161B27;border:1px solid #1E2A40;border-radius:10px;
+padding:12px 16px;margin-bottom:1rem;display:flex;align-items:center;gap:16px;flex-wrap:wrap'>
+<span style='color:#4ADE80;font-weight:700'>✅ {len(df):,} records loaded</span>
+&nbsp;·&nbsp; {badge_html}
+</div>""", unsafe_allow_html=True)
+
+# ── Dimensions-specific note ──────────────────────────────────────────────────
+sources_detected = [src for _, src, _ in source_log]
+if 'dimensions' in sources_detected:
+    st.info("""ℹ️ **Dimensions export detected.** Note: Dimensions BIB files do not include citation counts
+    or Open Access status — those columns will show as N/A. Keywords are also not exported by Dimensions,
+    so keyword analysis will be limited. For full analysis, combine with a Scopus export of the same query.""")
 
 # ── Pre-compute common values ─────────────────────────────────────────────────
 total_pubs     = len(df)
@@ -1570,17 +1672,145 @@ with tabs[9]:
 # TAB 11 — HOW TO GET DATA
 # ══════════════════════════════════════════════════════════════════════════════
 with tabs[10]:
-    section("📥 How to Export Data from Scopus")
+    section("📥 How to Export Data — Scopus & Dimensions")
 
     st.markdown("""
     <div style='color:#64748B;font-size:0.9rem;margin-bottom:1.5rem'>
-    This tool is optimised for <b style='color:#60A5FA'>Scopus BibTeX (.bib)</b> exports.
-    Follow the steps below to get your data from Scopus.
+    This tool supports exports from <b style='color:#60A5FA'>Scopus</b> and
+    <b style='color:#4ADE80'>Dimensions</b>. Click the tab below for your database.
     </div>
     """, unsafe_allow_html=True)
 
-    col_l, col_r = st.columns([1, 1])
+    guide_tab1, guide_tab2, guide_tab3 = st.tabs(["🔵 Scopus (Recommended)", "🟢 Dimensions (Free)", "📊 Comparison"])
 
+    with guide_tab2:
+        st.markdown("""
+        <div style='background:#0D1F0D;border:1px solid #14532D;border-radius:10px;
+        padding:14px 18px;margin-bottom:1rem;font-size:0.83rem;color:#4ADE80'>
+        ✅ <b>Dimensions is free to access</b> — no institutional subscription required.
+        Sign up at <b>app.dimensions.ai</b> with any email.
+        </div>
+        """, unsafe_allow_html=True)
+
+        d_col1, d_col2 = st.columns([1, 1])
+        with d_col1:
+            st.markdown("""
+            <div style='background:#161B27;border:1px solid #1E2A40;border-radius:12px;padding:22px;line-height:2'>
+            <div style='font-family:Syne,sans-serif;font-weight:700;color:#4ADE80;margin-bottom:14px;font-size:1rem'>
+            Dimensions Export Guide</div>
+
+            <div style='display:flex;gap:12px;margin-bottom:12px'>
+                <div style='background:#14532D;color:#4ADE80;font-weight:700;font-family:Syne,sans-serif;
+                min-width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+                justify-content:center;font-size:0.8rem;flex-shrink:0'>1</div>
+                <div style='color:#CBD5E1;font-size:0.87rem'>Go to <b style='color:#F1F5F9'>app.dimensions.ai</b>
+                and sign in (free account) or use your institutional login</div>
+            </div>
+            <div style='display:flex;gap:12px;margin-bottom:12px'>
+                <div style='background:#14532D;color:#4ADE80;font-weight:700;font-family:Syne,sans-serif;
+                min-width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+                justify-content:center;font-size:0.8rem;flex-shrink:0'>2</div>
+                <div style='color:#CBD5E1;font-size:0.87rem'>Click <b style='color:#F1F5F9'>Publications</b>
+                in the top menu, then enter your search keyword(s) in the search bar</div>
+            </div>
+            <div style='display:flex;gap:12px;margin-bottom:12px'>
+                <div style='background:#14532D;color:#4ADE80;font-weight:700;font-family:Syne,sans-serif;
+                min-width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+                justify-content:center;font-size:0.8rem;flex-shrink:0'>3</div>
+                <div style='color:#CBD5E1;font-size:0.87rem'>Apply filters as needed
+                (year range, publication type, research category, open access)</div>
+            </div>
+            <div style='display:flex;gap:12px;margin-bottom:12px'>
+                <div style='background:#14532D;color:#4ADE80;font-weight:700;font-family:Syne,sans-serif;
+                min-width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+                justify-content:center;font-size:0.8rem;flex-shrink:0'>4</div>
+                <div style='color:#CBD5E1;font-size:0.87rem'>Click the
+                <b style='color:#F1F5F9'>Save / Export</b> button (top right of results) →
+                select <b style='color:#4ADE80'>Export results</b></div>
+            </div>
+            <div style='display:flex;gap:12px;margin-bottom:12px'>
+                <div style='background:#14532D;color:#4ADE80;font-weight:700;font-family:Syne,sans-serif;
+                min-width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+                justify-content:center;font-size:0.8rem;flex-shrink:0'>5</div>
+                <div style='color:#CBD5E1;font-size:0.87rem'>Choose format:
+                <b style='color:#4ADE80'>BibTeX</b> → select fields:
+                <b style='color:#F1F5F9'>All available fields</b> (includes abstract)</div>
+            </div>
+            <div style='display:flex;gap:12px'>
+                <div style='background:#14532D;color:#4ADE80;font-weight:700;font-family:Syne,sans-serif;
+                min-width:26px;height:26px;border-radius:50%;display:flex;align-items:center;
+                justify-content:center;font-size:0.8rem;flex-shrink:0'>6</div>
+                <div style='color:#CBD5E1;font-size:0.87rem'>Click <b style='color:#F1F5F9'>Export</b> —
+                you will get a <b style='color:#4ADE80'>.bib file</b>.
+                Upload it directly to this tool. It will be auto-detected as a Dimensions export.</div>
+            </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with d_col2:
+            st.markdown("""
+            <div style='background:#161B27;border:1px solid #1E2A40;border-radius:12px;padding:22px'>
+            <div style='font-family:Syne,sans-serif;font-weight:700;color:#4ADE80;margin-bottom:14px;font-size:1rem'>
+            What Dimensions BIB includes</div>
+
+            <div style='background:#0F1117;border-left:3px solid #22C55E;border-radius:0 8px 8px 0;
+            padding:11px 14px;margin-bottom:10px'>
+                <div style='color:#4ADE80;font-weight:600;font-size:0.82rem;margin-bottom:4px'>✅ Available</div>
+                <div style='color:#94A3B8;font-size:0.82rem;line-height:1.7'>
+                Title · Authors · Year · Journal<br>
+                DOI · Abstract · URL · Volume / Issue / Pages</div>
+            </div>
+
+            <div style='background:#0F1117;border-left:3px solid #EF4444;border-radius:0 8px 8px 0;
+            padding:11px 14px;margin-bottom:10px'>
+                <div style='color:#FCA5A5;font-weight:600;font-size:0.82rem;margin-bottom:4px'>❌ Not in Dimensions BIB</div>
+                <div style='color:#94A3B8;font-size:0.82rem;line-height:1.7'>
+                <b style='color:#F1F5F9'>Citation count</b> — not exported (will show N/A)<br>
+                <b style='color:#F1F5F9'>Keywords</b> — field exists but is always empty<br>
+                <b style='color:#F1F5F9'>Affiliations</b> — not in BIB format<br>
+                <b style='color:#F1F5F9'>Open Access status</b> — not exported</div>
+            </div>
+
+            <div style='background:#0F1117;border-left:3px solid #F59E0B;border-radius:0 8px 8px 0;
+            padding:11px 14px'>
+                <div style='color:#FCD34D;font-weight:600;font-size:0.82rem;margin-bottom:4px'>💡 Export limit</div>
+                <div style='color:#94A3B8;font-size:0.82rem;line-height:1.7'>
+                Free Dimensions accounts: <b style='color:#F1F5F9'>500 records per export</b>.
+                For larger sets, split by year and upload multiple files — they will be merged automatically.</div>
+            </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    with guide_tab3:
+        st.markdown("""
+        <div style='background:#161B27;border:1px solid #1E2A40;border-radius:12px;padding:22px'>
+        <div style='font-family:Syne,sans-serif;font-weight:700;color:#F1F5F9;margin-bottom:16px;font-size:1rem'>
+        Scopus vs Dimensions — Which should you use?</div>
+        """, unsafe_allow_html=True)
+
+        comp_data = {
+            'Feature': ['Access', 'Records limit/export', 'Citation count in BIB', 'Keywords in BIB',
+                        'Affiliations in BIB', 'OA status in BIB', 'Abstract', 'Coverage'],
+            'Scopus 🔵': ['Institutional subscription required', '2,000 per file', '✅ Yes (in note field)',
+                          '✅ Yes (author + index)', '✅ Yes', '✅ Yes (Gold/Hybrid/Green)',
+                          '✅ Yes', 'Peer-reviewed journals & conferences'],
+            'Dimensions 🟢': ['Free (with account)', '500 per file (free tier)', '❌ Not in BIB',
+                               '❌ Always empty', '❌ Not in BIB', '❌ Not in BIB',
+                               '✅ Yes', 'Broader: journals, books, datasets, patents'],
+        }
+        st.dataframe(pd.DataFrame(comp_data), use_container_width=True, hide_index=True)
+        st.markdown("""
+        <div style='color:#64748B;font-size:0.82rem;margin-top:12px;line-height:1.7'>
+        <b style='color:#94A3B8'>Recommendation:</b> Use <b style='color:#60A5FA'>Scopus</b> when you have institutional access
+        — it provides richer metadata for citation and keyword analysis.
+        Use <b style='color:#4ADE80'>Dimensions</b> as a free alternative or to supplement with broader coverage.
+        You can <b style='color:#F1F5F9'>upload both together</b> — this tool merges them automatically.
+        </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with guide_tab1:
+        col_l, col_r = st.columns([1, 1])
     with col_l:
         st.markdown("""
         <div style='background:#161B27;border:1px solid #1E2A40;border-radius:12px;padding:24px;line-height:2'>
@@ -1708,4 +1938,3 @@ with tabs[10]:
         Bibliometric & Scientometric Analysis Suite</div>
         </div>
         """, unsafe_allow_html=True)
-
