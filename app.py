@@ -9,8 +9,7 @@ from collections import Counter
 from itertools import combinations
 import re, os, io, zipfile, tempfile
 
-import bibtexparser
-import rispy
+import rispy                                          # for .ris files only
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
 from pyvis.network import Network
@@ -235,82 +234,196 @@ plt.rcParams.update({
 })
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PARSERS  —  Auto-detects Scopus vs Dimensions BIB
+# PARSERS  —  Robust pure-Python brace-counting BIB parser
+#
+# WHY NOT bibtexparser:
+#   Scopus abstracts end with "© 2024 Author(s)" — the © character causes
+#   bibtexparser to silently truncate/drop the abstract field, leaving
+#   LDA, Research Fronts, and Keyword analyses with no text.
+#   Our brace-counting parser handles all UTF-8 characters correctly.
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _detect_bib_source(content: str) -> str:
     """Return 'scopus', 'dimensions', or 'generic'."""
     if re.search(r'^Scopus\s*\nEXPORT DATE', content, re.IGNORECASE | re.MULTILINE):
         return 'scopus'
-    if re.search(r'@article\{pub\.\d+', content[:500]):
+    if re.search(r'@\w+\s*\{\s*pub\.\d+', content[:2000], re.IGNORECASE):
         return 'dimensions'
-    # Fallback: check for Scopus-specific fields
-    if 'author_keywords' in content[:3000]:
+    if 'author_keywords' in content[:5000]:
         return 'scopus'
     return 'generic'
 
 
-def _parse_bib_entries(content: str):
-    """Strip non-BIB header and parse all entries with bibtexparser."""
-    raw = re.sub(r'^[^@]+(?=@)', '', content, count=1)  # strip Scopus header
-    parser = bibtexparser.bparser.BibTexParser(common_strings=True)
-    parser.ignore_nonstandard_types = False
-    parser.homogenise_fields = False
-    return bibtexparser.loads(raw, parser).entries
+def _bib_parse_entries(raw: str) -> list:
+    """
+    Brace-counting BIB entry parser.
+    Correctly handles:
+      - UTF-8 / © symbols inside field values (Scopus abstracts)
+      - Arbitrarily nested {} braces
+      - Tab-indented fields (Scopus) and space-indented (generic)
+      - UPPERCASE entry types: @ARTICLE, @CONFERENCE, @BOOK (Scopus)
+      - Dimensions IDs: @article{pub.1000295472, ...}
+      - Quoted string values: field = "value"
+      - Bare numeric values: year = 2024
+    """
+    # Strip everything before the first @
+    start = raw.find('@')
+    if start == -1:
+        return []
+    raw = raw[start:]
+
+    entries = []
+    i = 0
+    n = len(raw)
+
+    while i < n:
+        # ── Find next @ ────────────────────────────────────────────────────────
+        at = raw.find('@', i)
+        if at == -1:
+            break
+
+        # ── Read entry type and key ────────────────────────────────────────────
+        m = re.match(r'@(\w+)\s*\{\s*([^,\s\}]+)\s*,', raw[at:], re.IGNORECASE)
+        if not m:
+            i = at + 1
+            continue
+
+        entry_type = m.group(1).lower()
+        entry_key  = m.group(2)
+        pos = at + m.end()
+
+        fields = {'ENTRYTYPE': entry_type, 'ID': entry_key}
+
+        # ── Parse fields ───────────────────────────────────────────────────────
+        while pos < n:
+            # Skip whitespace and commas
+            while pos < n and raw[pos] in ' \t\n\r,':
+                pos += 1
+            if pos >= n:
+                break
+            # End of this entry
+            if raw[pos] == '@':
+                break
+            if raw[pos] == '}':
+                pos += 1
+                break
+
+            # Read field name: word chars followed by =
+            fm = re.match(r'(\w[\w_-]*)\s*=\s*', raw[pos:])
+            if not fm:
+                # Skip malformed / unrecognised line
+                nl = raw.find('\n', pos)
+                pos = (nl + 1) if nl != -1 else n
+                continue
+
+            field_name = fm.group(1).lower()
+            pos += fm.end()
+
+            # Read field value
+            if pos >= n:
+                break
+
+            if raw[pos] == '{':
+                # Brace-counting — correctly handles nested {} and all Unicode
+                depth = 1
+                pos += 1
+                buf = []
+                while pos < n and depth > 0:
+                    ch = raw[pos]
+                    if   ch == '{': depth += 1
+                    elif ch == '}': depth -= 1
+                    if depth > 0:
+                        buf.append(ch)
+                    pos += 1
+                value = ''.join(buf)
+
+            elif raw[pos] == '"':
+                # Quoted string
+                pos += 1
+                buf = []
+                while pos < n and raw[pos] != '"':
+                    if raw[pos] == '\\':
+                        pos += 1
+                    if pos < n:
+                        buf.append(raw[pos])
+                    pos += 1
+                pos += 1  # skip closing "
+                value = ''.join(buf)
+
+            else:
+                # Bare value (number, month name, etc.)
+                end_m = re.search(r'[,\}\n]', raw[pos:])
+                if end_m:
+                    value = raw[pos : pos + end_m.start()].strip()
+                    pos  += end_m.start()
+                else:
+                    value = raw[pos:].strip()
+                    pos = n
+
+            fields[field_name] = value.strip()
+
+        entries.append(fields)
+        i = pos
+
+    return entries
 
 
 def parse_bib(content: str) -> pd.DataFrame:
-    """Universal BIB parser — handles Scopus, Dimensions, and generic BibTeX."""
-    source = _detect_bib_source(content)
-    entries = _parse_bib_entries(content)
-    rows = []
+    """
+    Universal BIB → DataFrame.
+    Works with Scopus (.bib with © in abstracts), Dimensions (.bib with pub.* IDs),
+    and generic BibTeX.
+    """
+    source  = _detect_bib_source(content)
+    entries = _bib_parse_entries(content)
+    rows    = []
 
     for e in entries:
-        title = e.get('title', '').replace('{', '').replace('}', '').strip()
-        authors = e.get('author', '')
-        doi = e.get('doi', '')
+        # ── Common fields ──────────────────────────────────────────────────────
+        title    = e.get('title', '').replace('{','').replace('}','').strip()
+        authors  = e.get('author', '')
+        doi      = e.get('doi', '')
         abstract = e.get('abstract', '')
-        journal = e.get('journal', e.get('booktitle', e.get('publisher', '')))
+        journal  = (e.get('journal','') or e.get('booktitle','') or
+                    e.get('publisher','') or '')
 
-        # ── Year: prefer 'year'; fall back to 'date' (Dimensions: "2024-03-15") ──
-        year_raw = e.get('year', '') or e.get('date', '')
-        year_m = re.search(r'\b(19|20)\d{2}\b', str(year_raw))
-        year = year_m.group(0) if year_m else ''
+        # Year — prefer 'year', fall back to 'date' (Dimensions: "2015-07-03")
+        year_raw = e.get('year','') or e.get('date','')
+        ym = re.search(r'\b(19|20)\d{2}\b', str(year_raw))
+        year = ym.group(0) if ym else ''
 
-        # ── Document type ────────────────────────────────────────────────────────
-        doc_type = e.get('type', e.get('ENTRYTYPE', 'Unknown'))
+        # Document type
+        doc_type = e.get('type', e.get('entrytype', 'Unknown'))
 
-        # ── Source-specific field extraction ────────────────────────────────────
+        # ── Source-specific fields ─────────────────────────────────────────────
+        note = e.get('note', '')
+
         if source == 'scopus':
-            note  = e.get('note', '')
-            m     = re.search(r'Cited by:\s*(\d+)', note)
-            cited = int(m.group(1)) if m else np.nan
+            cm = re.search(r'Cited by:\s*(\d+)', note)
+            cited = int(cm.group(1)) if cm else np.nan
             if   'Gold Open Access' in note: oa = 'Gold OA'
             elif 'Hybrid Gold'      in note: oa = 'Hybrid OA'
             elif 'Green'            in note: oa = 'Green OA'
             elif 'Open Access'      in note: oa = 'Open Access'
             else:                            oa = 'Closed'
-            auth_kw  = e.get('author_keywords', '')
-            idx_kw   = e.get('keywords', '')
+            auth_kw      = e.get('author_keywords', '')
+            idx_kw       = e.get('keywords', '')
             affiliations = e.get('affiliations', e.get('affiliation', ''))
 
         elif source == 'dimensions':
-            # Dimensions has NO citation count in BIB export — leave NaN
-            cited = np.nan
-            oa = 'Unknown'
-            # 'keywords' field exists but is always empty in Dimensions BIB —
-            # extract from abstract as best-effort fallback
-            auth_kw  = e.get('keywords', '')   # usually empty
-            idx_kw   = ''
-            affiliations = e.get('affiliations', '')
+            # Dimensions BIB has no citation count, OA status, keywords, or affiliations
+            cited        = np.nan
+            oa           = 'Unknown'
+            auth_kw      = ''
+            idx_kw       = ''
+            affiliations = ''
 
         else:  # generic BibTeX
-            note  = e.get('note', '')
-            m     = re.search(r'Cited by:\s*(\d+)', note)
-            cited = int(m.group(1)) if m else np.nan
-            oa = 'Unknown'
-            auth_kw  = e.get('author_keywords', e.get('keywords', ''))
-            idx_kw   = ''
+            cm = re.search(r'Cited by:\s*(\d+)', note)
+            cited        = int(cm.group(1)) if cm else np.nan
+            oa           = 'Unknown'
+            auth_kw      = e.get('author_keywords', e.get('keywords', ''))
+            idx_kw       = ''
             affiliations = e.get('affiliations', e.get('affiliation', ''))
 
         rows.append({
@@ -327,15 +440,16 @@ def parse_bib(content: str) -> pd.DataFrame:
             'oa_status':       oa,
             'document_type':   doc_type,
             'affiliations':    affiliations,
-            '_source':         source,   # track origin for UI badge
+            '_source':         source,
         })
 
     df = pd.DataFrame(rows)
-    df['_source'] = source
+    if '_source' not in df.columns:
+        df['_source'] = source
     return df
 
 
-# Keep alias for backwards compatibility
+# Backward-compat alias
 parse_scopus_bib = parse_bib
 
 
@@ -1105,6 +1219,33 @@ with tabs[4]:
 
     auth_kw_all  = [k for lst in df.author_kw_list for k in lst]
     idx_kw_all   = [k for lst in df.index_kw_list  for k in lst]
+
+    # For Dimensions (no keywords): derive from abstracts via TF-IDF
+    using_abstract_fallback = False
+    if len(auth_kw_all) < 10:
+        using_abstract_fallback = True
+        try:
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            abs_series = df['abstract'].fillna('').astype(str)
+            abs_ok = abs_series[abs_series.str.len() > 80]
+            if len(abs_ok) >= 5:
+                tv = TfidfVectorizer(
+                    max_df=0.85, min_df=2, max_features=500,
+                    stop_words='english', ngram_range=(1,2),
+                    token_pattern=r'(?u)\b[a-zA-Z][a-zA-Z]{2,}\b'
+                )
+                mat = tv.fit_transform(abs_ok).toarray()
+                feats = tv.get_feature_names_out()
+                # Global frequency = how many docs each term appears in
+                doc_freq = (mat > 0).sum(axis=0)
+                auth_kw_all = []
+                for i, term in enumerate(feats):
+                    auth_kw_all.extend([term] * int(doc_freq[i]))
+                st.info("ℹ️ No author keywords detected — keyword analysis derived from abstract text (TF-IDF). "
+                        "Upload a Scopus .bib for richer keyword analysis.")
+        except Exception:
+            pass
+
     auth_kw_freq = Counter(auth_kw_all)
     idx_kw_freq  = Counter(idx_kw_all)
     akw_df = pd.DataFrame(auth_kw_freq.items(), columns=['keyword','count'])\
@@ -1115,22 +1256,34 @@ with tabs[4]:
     fig, axes = plt.subplots(2, 2, figsize=(14, 12))
     fig.suptitle('Keyword Analysis', fontsize=13, fontweight='bold', color='#F1F5F9')
 
-    axes[0,0].barh(akw_df.head(top_n).keyword[::-1], akw_df.head(top_n)['count'][::-1], color=C['blue'])
-    axes[0,0].set_title('Top Author Keywords'); axes[0,0].set_xlabel('Frequency')
+    kw_label = 'Top Abstract Terms (TF-IDF)' if using_abstract_fallback else 'Top Author Keywords'
+    if len(akw_df) > 0:
+        axes[0,0].barh(akw_df.head(top_n).keyword[::-1], akw_df.head(top_n)['count'][::-1], color=C['blue'])
+    axes[0,0].set_title(kw_label); axes[0,0].set_xlabel('Frequency')
 
-    axes[0,1].barh(ikw_df.head(top_n).keyword[::-1], ikw_df.head(top_n)['count'][::-1], color=C['green'])
+    if len(ikw_df) > 0:
+        axes[0,1].barh(ikw_df.head(top_n).keyword[::-1], ikw_df.head(top_n)['count'][::-1], color=C['green'])
     axes[0,1].set_title('Top Scopus Index Keywords'); axes[0,1].set_xlabel('Frequency')
 
     if auth_kw_freq:
         wc = WordCloud(width=700, height=320, background_color='#161B27',
                        colormap='Blues', max_words=80).generate_from_frequencies(auth_kw_freq)
         axes[1,0].imshow(wc, interpolation='bilinear'); axes[1,0].axis('off')
-        axes[1,0].set_title('Author Keyword Cloud')
+        axes[1,0].set_title('Author Keyword Cloud' if not using_abstract_fallback else 'Abstract Term Cloud')
+    else:
+        axes[1,0].text(0.5, 0.5, 'No keyword data available', ha='center', va='center',
+                       color='#64748B', transform=axes[1,0].transAxes)
+        axes[1,0].axis('off')
+
     if idx_kw_freq:
         wc2 = WordCloud(width=700, height=320, background_color='#161B27',
                         colormap='Greens', max_words=80).generate_from_frequencies(idx_kw_freq)
         axes[1,1].imshow(wc2, interpolation='bilinear'); axes[1,1].axis('off')
         axes[1,1].set_title('Index Keyword Cloud')
+    else:
+        axes[1,1].text(0.5, 0.5, 'No index keyword data\n(not available in Dimensions exports)',
+                       ha='center', va='center', color='#64748B', transform=axes[1,1].transAxes)
+        axes[1,1].axis('off')
 
     plt.tight_layout(); st.pyplot(fig)
     dl_btn("Download Keyword Chart", fig, "keywords.png")
@@ -1183,95 +1336,101 @@ with tabs[5]:
 
     cit_df = df[df.cited_by.notna()].sort_values('cited_by', ascending=False)
 
-    fig, axes = plt.subplots(1, 3, figsize=(16, 6))
+    if len(cit_df) == 0:
+        st.warning("""⚠️ **No citation data available.** This is expected for Dimensions BIB exports,
+        which do not include citation counts. To get citation data, export the same search from
+        **Scopus** (which includes citation counts in the note field) and upload alongside your Dimensions file.""")
+    else:
+        fig, axes = plt.subplots(1, 3, figsize=(16, 6))
 
-    nz = cit_df[cit_df.cited_by > 0].cited_by
-    if len(nz) > 0:
-        axes[0].hist(np.log10(nz+1), bins=min(40, len(nz)//2+1),
-                     color=C['blue'], edgecolor='#0F1117', alpha=0.85)
-    axes[0].axvline(np.log10(cit_df.cited_by.mean()+1),   color=C['red'],   ls='--',
-                    label=f"Mean={cit_df.cited_by.mean():.1f}")
-    axes[0].axvline(np.log10(cit_df.cited_by.median()+1), color=C['green'], ls='--',
-                    label=f"Median={cit_df.cited_by.median():.0f}")
-    axes[0].set_title('Citation Distribution (log₁₀)'); axes[0].set_xlabel('log₁₀(Cites+1)')
-    axes[0].legend(facecolor='#1E2A40', labelcolor='#CBD5E1')
+        nz = cit_df[cit_df.cited_by > 0].cited_by
+        if len(nz) > 0:
+            axes[0].hist(np.log10(nz+1), bins=min(40, len(nz)//2+1),
+                         color=C['blue'], edgecolor='#0F1117', alpha=0.85)
+        axes[0].axvline(np.log10(cit_df.cited_by.mean()+1),   color=C['red'],   ls='--',
+                        label=f"Mean={cit_df.cited_by.mean():.1f}")
+        axes[0].axvline(np.log10(cit_df.cited_by.median()+1), color=C['green'], ls='--',
+                        label=f"Median={cit_df.cited_by.median():.0f}")
+        axes[0].set_title('Citation Distribution (log₁₀)'); axes[0].set_xlabel('log₁₀(Cites+1)')
+        axes[0].legend(facecolor='#1E2A40', labelcolor='#CBD5E1')
 
-    sc_s = np.sort(cit_df.cited_by.values)
-    cp   = np.arange(1, len(sc_s)+1) / len(sc_s)
-    cc_s = np.cumsum(sc_s) / sc_s.sum()
-    axes[1].plot(cp*100, cc_s*100, color=C['blue'], lw=2)
-    axes[1].plot([0,100],[0,100], color='#94A3B8', ls='--', lw=1, label='Perfect equality')
-    axes[1].fill_between(cp*100, cc_s*100, cp*100, alpha=0.1, color=C['blue'])
-    idx90 = np.searchsorted(cp, 0.90)
-    axes[1].annotate(f"Top 10% papers\n→ {(1-cc_s[idx90])*100:.0f}% of cites",
-                     xy=(90, cc_s[idx90]*100), xytext=(50,20),
-                     arrowprops=dict(arrowstyle='->', color='#94A3B8'),
-                     color=C['red'], fontsize=9)
-    axes[1].set_title('Citation Lorenz Curve'); axes[1].set_xlabel('% Papers')
-    axes[1].set_ylabel('Cumulative Cites %')
-    axes[1].legend(facecolor='#1E2A40', labelcolor='#CBD5E1')
+        sc_s = np.sort(cit_df.cited_by.values)
+        cp   = np.arange(1, len(sc_s)+1) / len(sc_s)
+        cc_s = np.cumsum(sc_s) / (sc_s.sum() if sc_s.sum() > 0 else 1)
+        axes[1].plot(cp*100, cc_s*100, color=C['blue'], lw=2)
+        axes[1].plot([0,100],[0,100], color='#94A3B8', ls='--', lw=1, label='Perfect equality')
+        axes[1].fill_between(cp*100, cc_s*100, cp*100, alpha=0.1, color=C['blue'])
+        idx90 = min(np.searchsorted(cp, 0.90), len(cc_s) - 1)
+        if len(cc_s) > 1 and sc_s.sum() > 0:
+            axes[1].annotate(f"Top 10% papers\n→ {(1-cc_s[idx90])*100:.0f}% of cites",
+                             xy=(cp[idx90]*100, cc_s[idx90]*100), xytext=(30, 20),
+                             arrowprops=dict(arrowstyle='->', color='#94A3B8'),
+                             color=C['red'], fontsize=9)
+        axes[1].set_title('Citation Lorenz Curve'); axes[1].set_xlabel('% Papers')
+        axes[1].set_ylabel('Cumulative Cites %')
+        axes[1].legend(facecolor='#1E2A40', labelcolor='#CBD5E1')
 
-    cyt = df.groupby('year')['cited_by'].agg(['mean','sum'])
-    ax2 = axes[2].twinx()
-    axes[2].bar(cyt.index, cyt['sum'], color=C['blue'], alpha=0.4, label='Total cites')
-    ax2.plot(cyt.index, cyt['mean'], color=C['red'], lw=2, marker='o', ms=4, label='Mean/paper')
-    axes[2].set_title('Citations by Year'); axes[2].set_xlabel('Year')
-    axes[2].set_ylabel('Total Cites', color=C['blue'])
-    ax2.set_ylabel('Mean Cites/Paper', color=C['red'])
+        cyt = df.groupby('year')['cited_by'].agg(['mean','sum'])
+        ax2 = axes[2].twinx()
+        axes[2].bar(cyt.index, cyt['sum'], color=C['blue'], alpha=0.4, label='Total cites')
+        ax2.plot(cyt.index, cyt['mean'], color=C['red'], lw=2, marker='o', ms=4, label='Mean/paper')
+        axes[2].set_title('Citations by Year'); axes[2].set_xlabel('Year')
+        axes[2].set_ylabel('Total Cites', color=C['blue'])
+        ax2.set_ylabel('Mean Cites/Paper', color=C['red'])
 
-    plt.tight_layout(); st.pyplot(fig)
-    dl_btn("Download Citation Chart", fig, "citations.png")
+        plt.tight_layout(); st.pyplot(fig)
+        dl_btn("Download Citation Chart", fig, "citations.png")
 
-    st.markdown("""
-    <div class='insight-box red'>
-    <div class='insight-title red'>💡 How to Read & Use This</div>
-    <div class='insight-row'>
-        <div class='insight-card'>
-            <b>Citation Distribution</b><br>
-            Most fields follow a <b>power law</b> — a few papers get most citations.
-            If the distribution is very steep, the field has clear canonical papers
-            that every new paper must cite. A flatter distribution suggests
-            more distributed influence.
+        st.markdown("""
+        <div class='insight-box red'>
+        <div class='insight-title red'>💡 How to Read & Use This</div>
+        <div class='insight-row'>
+            <div class='insight-card'>
+                <b>Citation Distribution</b><br>
+                Most fields follow a <b>power law</b> — a few papers get most citations.
+                If the distribution is very steep, the field has clear canonical papers
+                that every new paper must cite. A flatter distribution suggests
+                more distributed influence.
+            </div>
+            <div class='insight-card'>
+                <b>Lorenz Curve & Inequality</b><br>
+                The further the curve bends from the diagonal, the more
+                <b>citation inequality</b> exists. If the top 10% of papers account for
+                &gt;80% of citations, the field has a small set of highly influential works —
+                read those first.
+            </div>
+            <div class='insight-card'>
+                <b>Citations by Year</b><br>
+                Recent years often show low citation counts — papers need time to accumulate
+                citations. A high mean for older years indicates <b>classic foundational papers</b>
+                in that period. Look for years with sudden spikes — they often correspond
+                to breakthrough publications.
+            </div>
+            <div class='insight-card'>
+                <b>Top Cited Papers Table</b><br>
+                These are your <b>must-read papers</b>. They represent the intellectual
+                foundation of the field. In your own paper, citing them signals to reviewers
+                that you are familiar with the core literature. Also check their
+                reference lists for earlier seminal work.
+            </div>
         </div>
-        <div class='insight-card'>
-            <b>Lorenz Curve & Inequality</b><br>
-            The further the curve bends from the diagonal, the more
-            <b>citation inequality</b> exists. If the top 10% of papers account for
-            &gt;80% of citations, the field has a small set of highly influential works —
-            read those first.
+        <div style='margin-top:12px;font-size:0.82rem;color:#64748B'>
+        <b style='color:#94A3B8'>Use this for:</b>
+        <span class='insight-tag tag-red'>Building your reading list</span>
+        <span class='insight-tag tag-blue'>Identifying seminal papers</span>
+        <span class='insight-tag tag-green'>Benchmarking impact</span>
+        <span class='insight-tag tag-amber'>Understanding field maturity</span>
         </div>
-        <div class='insight-card'>
-            <b>Citations by Year</b><br>
-            Recent years often show low citation counts — papers need time to accumulate
-            citations. A high mean for older years indicates <b>classic foundational papers</b>
-            in that period. Look for years with sudden spikes — they often correspond
-            to breakthrough publications.
         </div>
-        <div class='insight-card'>
-            <b>Top Cited Papers Table</b><br>
-            These are your <b>must-read papers</b>. They represent the intellectual
-            foundation of the field. In your own paper, citing them signals to reviewers
-            that you are familiar with the core literature. Also check their
-            reference lists for earlier seminal work.
-        </div>
-    </div>
-    <div style='margin-top:12px;font-size:0.82rem;color:#64748B'>
-    <b style='color:#94A3B8'>Use this for:</b>
-    <span class='insight-tag tag-red'>Building your reading list</span>
-    <span class='insight-tag tag-blue'>Identifying seminal papers</span>
-    <span class='insight-tag tag-green'>Benchmarking impact</span>
-    <span class='insight-tag tag-amber'>Understanding field maturity</span>
-    </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
-    st.markdown("<div class='section-header' style='font-size:1rem'>🏆 Top Cited Papers</div>",
-                unsafe_allow_html=True)
-    tc = cit_df[['title','year','journal','cited_by']].head(15).copy()
-    tc['title'] = tc['title'].str[:70] + '...'
-    st.dataframe(tc.rename(columns={'title':'Title','year':'Year',
-                                     'journal':'Journal','cited_by':'Citations'}),
-                 use_container_width=True, hide_index=True)
+        st.markdown("<div class='section-header' style='font-size:1rem'>🏆 Top Cited Papers</div>",
+                    unsafe_allow_html=True)
+        tc = cit_df[['title','year','journal','cited_by']].head(15).copy()
+        tc['title'] = tc['title'].str[:70] + '...'
+        st.dataframe(tc.rename(columns={'title':'Title','year':'Year',
+                                         'journal':'Journal','cited_by':'Citations'}),
+                     use_container_width=True, hide_index=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1315,15 +1474,47 @@ with tabs[6]:
 
     with col_b:
         st.markdown("<b style='color:#60A5FA'>Keyword Co-occurrence Network</b>", unsafe_allow_html=True)
-        G_kw = nx.Graph()
-        for kw_list in df.author_kw_list:
-            if len(kw_list) > 1:
-                for k1,k2 in combinations(kw_list,2):
-                    if G_kw.has_edge(k1,k2): G_kw[k1][k2]['weight'] += 1
-                    else:                    G_kw.add_edge(k1,k2, weight=1)
-        G_kw = nx.Graph([(u,v,d) for u,v,d in G_kw.edges(data=True) if d['weight'] >= min_cooc])
 
-        fig3, ax3 = plt.subplots(figsize=(8,8))
+        # Build keyword lists per paper — use author_kw_list if available,
+        # otherwise derive top terms from abstract (for Dimensions exports)
+        kw_lists_for_network = list(df.author_kw_list)
+        has_kw = sum(1 for kl in kw_lists_for_network if len(kl) > 0)
+
+        if has_kw < 10:
+            # Fallback: extract top TF-IDF terms per abstract
+            try:
+                from sklearn.feature_extraction.text import TfidfVectorizer
+                abs_series = df['abstract'].fillna('').astype(str)
+                abs_series = abs_series[abs_series.str.len() > 80]
+                if len(abs_series) >= 10:
+                    tv = TfidfVectorizer(
+                        max_df=0.85, min_df=2, max_features=200,
+                        stop_words='english', ngram_range=(1,2),
+                        token_pattern=r'(?u)\b[a-zA-Z][a-zA-Z]{2,}\b'
+                    )
+                    mat = tv.fit_transform(abs_series).toarray()
+                    features = tv.get_feature_names_out()
+                    kw_lists_for_network = []
+                    for row_vec in mat:
+                        top5 = [features[i] for i in row_vec.argsort()[::-1][:5] if row_vec[i] > 0]
+                        kw_lists_for_network.append(top5)
+                    st.caption("ℹ️ No author keywords — keyword network derived from abstract text.")
+            except Exception:
+                kw_lists_for_network = list(df.author_kw_list)
+
+        G_kw = nx.Graph()
+        for kw_list in kw_lists_for_network:
+            if len(kw_list) > 1:
+                for k1, k2 in combinations(kw_list, 2):
+                    if G_kw.has_edge(k1, k2): G_kw[k1][k2]['weight'] += 1
+                    else:                      G_kw.add_edge(k1, k2, weight=1)
+        G_kw = nx.Graph([(u,v,d) for u,v,d in G_kw.edges(data=True) if d['weight'] >= min_cooc])
+        # Limit to top 60 nodes by degree for readability
+        if G_kw.number_of_nodes() > 60:
+            top60_kw = sorted(dict(G_kw.degree()).items(), key=lambda x: x[1], reverse=True)[:60]
+            G_kw = G_kw.subgraph([n for n,_ in top60_kw]).copy()
+
+        fig3, ax3 = plt.subplots(figsize=(8, 8))
         if G_kw.number_of_nodes() > 0:
             kw_deg = dict(G_kw.degree())
             pos_kw = nx.spring_layout(G_kw, k=0.5, seed=42)
@@ -1333,6 +1524,9 @@ with tabs[6]:
             nx.draw_networkx_nodes(G_kw, pos_kw, ax=ax3,
                                    node_size=node_sz, node_color=C['purple'], alpha=0.85)
             nx.draw_networkx_labels(G_kw, pos_kw, ax=ax3, font_size=6.5, font_color='#CBD5E1')
+        else:
+            ax3.text(0.5, 0.5, 'No keyword co-occurrences found.\nTry lowering the min. co-occurrence slider.',
+                     ha='center', va='center', color='#64748B', transform=ax3.transAxes)
         ax3.set_title(f'Keyword Network (co-occur ≥{min_cooc})', color='#F1F5F9'); ax3.axis('off')
         plt.tight_layout(); st.pyplot(fig3)
         dl_btn("Download Keyword Network Chart", fig3, "keyword_network.png")
@@ -1411,89 +1605,116 @@ with tabs[6]:
 with tabs[7]:
     section("LDA Topic Modelling from Abstracts")
 
-    abstracts = df.abstract.dropna().astype(str)
-    abstracts = abstracts[abstracts.str.len() > 80].reset_index(drop=True)
+    # Clean abstracts — filter out empty/very short entries
+    abstracts = (df['abstract']
+                 .dropna()
+                 .astype(str)
+                 .str.strip()
+                 .pipe(lambda s: s[s.str.len() > 80])
+                 .reset_index(drop=True))
 
     if len(abstracts) < 5:
-        st.warning("Terlalu sedikit abstrak (< 5). Upload lebih banyak data.")
+        st.warning("""⚠️ **Not enough abstracts for topic modelling** (need at least 5).
+        This may happen with Dimensions exports — try uploading a Scopus .bib which
+        includes full abstracts for all entries.""")
     else:
-        st.info(f"Fitting LDA dengan **{n_topics} topik** pada **{len(abstracts)}** abstrak...")
-        vec   = CountVectorizer(max_df=0.9, min_df=2, max_features=1500,
-                                stop_words='english', ngram_range=(1,2))
+        st.info(f"Fitting LDA with **{n_topics} topics** on **{len(abstracts):,}** abstracts...")
+
+        # Adaptive min_df: use 2 for large corpora, 1 for small ones
+        adaptive_min_df = 2 if len(abstracts) >= 50 else 1
+
+        vec = CountVectorizer(
+            max_df=0.95, min_df=adaptive_min_df,
+            max_features=2000,
+            stop_words='english',
+            ngram_range=(1, 2),
+            token_pattern=r'(?u)\b[a-zA-Z][a-zA-Z]{2,}\b'  # letters only, min 3 chars
+        )
         try:
             dtm   = vec.fit_transform(abstracts)
             vocab = np.array(vec.get_feature_names_out())
-            lda   = LatentDirichletAllocation(n_components=n_topics, max_iter=30,
-                                               learning_method='online', random_state=42)
-            lda.fit(dtm)
-            topics = {i: vocab[comp.argsort()[::-1][:12]].tolist()
-                      for i,comp in enumerate(lda.components_)}
 
-            n_cols = min(3, n_topics)
-            n_rows = (n_topics + n_cols - 1) // n_cols
-            fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols*5, n_rows*4))
-            axes = axes.flatten() if n_topics > 1 else [axes]
-            for i in range(n_topics):
-                words  = topics[i]
-                scores = sorted(lda.components_[i], reverse=True)[:12]
-                norm   = np.array(scores) / np.sum(scores)
-                axes[i].barh(words[::-1], norm[::-1], color=plt.cm.tab10(i/n_topics))
-                axes[i].set_title(f'Topic {i+1}', fontweight='bold', color='#F1F5F9')
-                axes[i].set_xlabel('Relative Weight')
-            for j in range(n_topics, len(axes)): axes[j].set_visible(False)
-            fig.suptitle(f'LDA Topic Model ({n_topics} Topics)', fontsize=13,
-                         fontweight='bold', color='#F1F5F9')
-            plt.tight_layout(); st.pyplot(fig)
-            dl_btn("Download LDA Chart", fig, "lda_topics.png")
+            if dtm.shape[1] == 0:
+                st.warning("Vocabulary is empty after filtering. Try reducing LDA topics or uploading more data.")
+            else:
+                lda = LatentDirichletAllocation(
+                    n_components=n_topics, max_iter=30,
+                    learning_method='online', random_state=42,
+                    n_jobs=-1
+                )
+                lda.fit(dtm)
+                topics = {i: vocab[comp.argsort()[::-1][:12]].tolist()
+                          for i, comp in enumerate(lda.components_)}
 
-            st.markdown("""
-            <div class='insight-box green'>
-            <div class='insight-title green'>💡 How to Read & Use This</div>
-            <div class='insight-row'>
-                <div class='insight-card'>
-                    <b>Each Topic Bar Chart</b><br>
-                    Words with higher relative weight define that topic's theme.
-                    Read the top 5–6 words together as a concept cluster and give it
-                    a human-readable label — e.g. "Topic 2: GIS-based site selection".
-                    That label is a <b>sub-theme</b> of your research field.
-                </div>
-                <div class='insight-card'>
-                    <b>Topic Share (%)</b><br>
-                    Shows how many abstracts are dominated by each topic.
-                    A topic with &gt;40% share is the <b>mainstream strand</b>.
-                    Topics with &lt;10% share are niche or emerging — potentially
-                    higher novelty for a new paper.
-                </div>
-                <div class='insight-card'>
-                    <b>Interpreting Overlap</b><br>
-                    If two topics share many words, they may be the same sub-theme
-                    split across the model. Try reducing the number of topics
-                    in the sidebar slider to merge them into a cleaner picture.
-                </div>
-                <div class='insight-card'>
-                    <b>Strategic Use</b><br>
-                    Map your own paper's abstract onto these topics — which one does it
-                    fit? If your work spans two topics that rarely co-occur, that is a
-                    <b>novelty claim</b>: "We integrate [Topic A] with [Topic B],
-                    an approach absent in prior literature."
-                </div>
-            </div>
-            <div style='margin-top:12px;font-size:0.82rem;color:#64748B'>
-            <b style='color:#94A3B8'>Use this for:</b>
-            <span class='insight-tag tag-green'>Structuring literature review chapters</span>
-            <span class='insight-tag tag-blue'>Identifying research sub-themes</span>
-            <span class='insight-tag tag-amber'>Claiming novelty at intersection of topics</span>
-            </div>
-            </div>
-            """, unsafe_allow_html=True)
+                n_cols = min(3, n_topics)
+                n_rows = (n_topics + n_cols - 1) // n_cols
+                fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols*5, n_rows*4))
+                axes = axes.flatten() if n_topics > 1 else [axes]
+                for i in range(n_topics):
+                    words  = topics[i]
+                    scores = sorted(lda.components_[i], reverse=True)[:12]
+                    norm   = np.array(scores) / (np.sum(scores) or 1)
+                    axes[i].barh(words[::-1], norm[::-1], color=plt.cm.tab10(i/n_topics))
+                    axes[i].set_title(f'Topic {i+1}', fontweight='bold', color='#F1F5F9')
+                    axes[i].set_xlabel('Relative Weight')
+                for j in range(n_topics, len(axes)):
+                    axes[j].set_visible(False)
+                fig.suptitle(f'LDA Topic Model ({n_topics} Topics)', fontsize=13,
+                             fontweight='bold', color='#F1F5F9')
+                plt.tight_layout()
+                st.pyplot(fig)
+                dl_btn("Download LDA Chart", fig, "lda_topics.png")
 
-            dom = Counter(lda.transform(dtm).argmax(axis=1))
-            st.markdown("**Topic Share:**")
-            for t in sorted(dom):
-                pct = dom[t]/len(abstracts)*100
-                st.markdown(f"- **Topic {t+1}** ({pct:.1f}%): {', '.join(topics[t][:5])}")
+                st.markdown("""
+                <div class='insight-box green'>
+                <div class='insight-title green'>💡 How to Read & Use This</div>
+                <div class='insight-row'>
+                    <div class='insight-card'>
+                        <b>Each Topic Bar Chart</b><br>
+                        Words with higher relative weight define that topic's theme.
+                        Read the top 5–6 words together as a concept cluster and give it
+                        a human-readable label — e.g. "Topic 2: GIS-based site selection".
+                        That label is a <b>sub-theme</b> of your research field.
+                    </div>
+                    <div class='insight-card'>
+                        <b>Topic Share (%)</b><br>
+                        Shows how many abstracts are dominated by each topic.
+                        A topic with &gt;40% share is the <b>mainstream strand</b>.
+                        Topics with &lt;10% share are niche or emerging — potentially
+                        higher novelty for a new paper.
+                    </div>
+                    <div class='insight-card'>
+                        <b>Interpreting Overlap</b><br>
+                        If two topics share many words, they may be the same sub-theme
+                        split across the model. Try reducing the number of topics
+                        in the sidebar slider to merge them into a cleaner picture.
+                    </div>
+                    <div class='insight-card'>
+                        <b>Strategic Use</b><br>
+                        Map your own paper's abstract onto these topics — which one does it
+                        fit? If your work spans two topics that rarely co-occur, that is a
+                        <b>novelty claim</b>: "We integrate [Topic A] with [Topic B],
+                        an approach absent in prior literature."
+                    </div>
+                </div>
+                <div style='margin-top:12px;font-size:0.82rem;color:#64748B'>
+                <b style='color:#94A3B8'>Use this for:</b>
+                <span class='insight-tag tag-green'>Structuring literature review chapters</span>
+                <span class='insight-tag tag-blue'>Identifying research sub-themes</span>
+                <span class='insight-tag tag-amber'>Claiming novelty at intersection of topics</span>
+                </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                dom = Counter(lda.transform(dtm).argmax(axis=1))
+                st.markdown("**Topic Share:**")
+                for t in sorted(dom):
+                    pct = dom[t] / len(abstracts) * 100
+                    st.markdown(f"- **Topic {t+1}** ({pct:.1f}%): {', '.join(topics[t][:5])}")
+
         except Exception as ex:
             st.error(f"LDA error: {ex}. Try reducing the number of topics or upload more data.")
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1502,12 +1723,39 @@ with tabs[7]:
 with tabs[8]:
     section("Research Front Map — Emerging vs Established Themes")
 
-    kw_recs = [{'keyword':kw,'year':row.year}
-               for _,row in df.iterrows() if pd.notna(row.year)
+    # Build keyword-year records.
+    # Primary source: author_keywords (Scopus).
+    # Fallback for Dimensions (no keywords): extract top terms from abstracts via TF-IDF.
+    kw_recs = [{'keyword': kw, 'year': row.year}
+               for _, row in df.iterrows() if pd.notna(row.year)
                for kw in row.author_kw_list]
 
+    # If no author keywords (e.g. Dimensions), derive from abstracts
+    if len(kw_recs) < 10:
+        try:
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            abs_df = df[df['abstract'].str.len() > 80][['abstract','year']].dropna()
+            if len(abs_df) >= 10:
+                tfidf = TfidfVectorizer(
+                    max_df=0.85, min_df=2, max_features=300,
+                    stop_words='english', ngram_range=(1,2),
+                    token_pattern=r'(?u)\b[a-zA-Z][a-zA-Z]{2,}\b'
+                )
+                tfidf.fit(abs_df['abstract'].astype(str))
+                feature_names = tfidf.get_feature_names_out()
+                mat = tfidf.transform(abs_df['abstract'].astype(str)).toarray()
+                for idx, (_, row) in enumerate(abs_df.iterrows()):
+                    top_idx = mat[idx].argsort()[::-1][:5]
+                    for ti in top_idx:
+                        if mat[idx][ti] > 0:
+                            kw_recs.append({'keyword': feature_names[ti], 'year': row['year']})
+                st.info("ℹ️ No author keywords found — research fronts derived from abstract text (TF-IDF).")
+        except Exception:
+            pass
+
     if len(kw_recs) < 5:
-        st.warning("Tidak cukup data keyword-tahun. Pastikan abstrak dan keyword tersedia.")
+        st.warning("""⚠️ **Not enough keyword data** to build the research front map.
+        For best results, use a Scopus .bib export — it includes author keywords for each paper.""")
     else:
         kw_temp  = pd.DataFrame(kw_recs)
         kw_stats = kw_temp.groupby('keyword').agg(
