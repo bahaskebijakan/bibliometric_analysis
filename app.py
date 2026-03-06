@@ -1655,10 +1655,108 @@ with tabs[6]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+# STOPWORDS — extended academic stopwords for LDA
+# ══════════════════════════════════════════════════════════════════════════════
+_ACADEMIC_STOPWORDS = {
+    # Generic academic writing filler
+    "study", "studies", "paper", "research", "article", "review", "analysis",
+    "approach", "method", "methods", "methodology", "technique", "techniques",
+    "framework", "model", "models", "system", "systems", "process", "processes",
+    "result", "results", "finding", "findings", "conclusion", "conclusions",
+    "introduction", "background", "objective", "objectives", "aim", "aims",
+    "purpose", "scope", "limitation", "limitations", "implication", "implications",
+    "contribution", "contributions", "discussion", "literature", "context",
+    "evidence", "data", "dataset", "sample", "samples", "case", "cases",
+    "example", "examples", "factor", "factors", "aspect", "aspects",
+    "issue", "issues", "challenge", "challenges", "problem", "problems",
+    "solution", "solutions", "strategy", "strategies", "policy", "policies",
+    "practice", "practices", "application", "applications", "implementation",
+    "evaluation", "assessment", "comparison", "review", "overview", "survey",
+    "experiment", "experiments", "simulation", "simulations", "scenario",
+    "scenarios", "condition", "conditions", "variable", "variables",
+    "parameter", "parameters", "criterion", "criteria", "indicator", "indicators",
+    "index", "indices", "measure", "measures", "measurement", "measurements",
+    "value", "values", "level", "levels", "degree", "rate", "rates",
+    "number", "numbers", "amount", "amounts", "type", "types", "form", "forms",
+    "set", "sets", "group", "groups", "category", "categories", "class", "classes",
+    # Verbs commonly used as nouns in abstracts
+    "propose", "proposed", "present", "presented", "provide", "provided",
+    "develop", "developed", "design", "designed", "implement", "implemented",
+    "apply", "applied", "use", "used", "show", "shown", "demonstrate",
+    "demonstrated", "identify", "identified", "analyze", "analyzed", "analyse",
+    "analysed", "evaluate", "evaluated", "assess", "assessed", "compare",
+    "compared", "examine", "examined", "investigate", "investigated",
+    "explore", "explored", "consider", "considered", "discuss", "discussed",
+    "describe", "described", "define", "defined", "include", "included",
+    "based", "focus", "focused", "aim", "aimed", "ensure", "ensured",
+    "achieve", "achieved", "improve", "improved", "increase", "increased",
+    "reduce", "reduced", "enhance", "enhanced", "support", "supported",
+    "require", "required", "allow", "allowed", "enable", "enabled",
+    "indicate", "indicated", "suggest", "suggested", "reveal", "revealed",
+    "confirm", "confirmed", "validate", "validated", "verify", "verified",
+    # Common adjectives / adverbs that add no topical meaning
+    "significant", "significantly", "important", "importantly", "major",
+    "key", "main", "primary", "secondary", "general", "specific", "particular",
+    "various", "different", "similar", "common", "typical", "traditional",
+    "conventional", "current", "recent", "new", "novel", "existing", "previous",
+    "effective", "efficient", "robust", "accurate", "reliable", "valid",
+    "high", "low", "large", "small", "great", "good", "better", "best",
+    "multiple", "several", "many", "few", "single", "overall", "total",
+    "potential", "possible", "likely", "highly", "well", "widely",
+    "commonly", "often", "also", "however", "thus", "therefore", "hence",
+    "moreover", "furthermore", "additionally", "finally", "overall",
+    "respectively", "additionally", "consequently", "subsequently",
+    # Time / scope words
+    "year", "years", "period", "periods", "time", "times", "date", "dates",
+    "century", "decade", "decades", "recent", "previously", "currently",
+    "future", "past", "present", "long", "short", "term", "terms",
+    # Connector / preposition-like words that slip past sklearn
+    "using", "used", "via", "within", "across", "among", "between",
+    "through", "into", "onto", "upon", "about", "like", "such",
+    "order", "terms", "way", "ways", "role", "need", "needs",
+    # Academic publishing words
+    "journal", "paper", "abstract", "keyword", "keywords", "citation",
+    "reference", "references", "table", "figure", "section", "appendix",
+    "doi", "isbn", "issn", "vol", "volume", "issue", "page", "pages",
+    "author", "authors", "et", "al", "ibid",
+}
+
 # TAB 8 — LDA
 # ══════════════════════════════════════════════════════════════════════════════
 with tabs[7]:
     section("LDA Topic Modelling from Abstracts")
+
+    # ── Stopwords UI ──────────────────────────────────────────────────────────
+    with st.expander("⚙️ Custom Stopwords", expanded=False):
+        st.markdown("""
+        <div style='color:#94A3B8;font-size:0.82rem;margin-bottom:8px'>
+        Common academic filler words are already filtered out automatically.
+        Add your own domain-specific words below to further clean up the topics
+        (comma-separated, e.g. <code style='color:#60A5FA'>water, urban, city, carbon</code>).
+        </div>
+        """, unsafe_allow_html=True)
+        custom_sw_input = st.text_area(
+            "Additional stopwords (comma-separated)",
+            value="",
+            height=80,
+            placeholder="e.g. water, urban, city, carbon, climate",
+            label_visibility="collapsed"
+        )
+        show_sw = st.checkbox("Show full stopword list", value=False)
+        if show_sw:
+            all_sw_display = sorted(_ACADEMIC_STOPWORDS)
+            st.markdown(
+                f"<div style='color:#475569;font-size:0.75rem;line-height:1.8'>"
+                f"<b style='color:#64748B'>Built-in academic stopwords ({len(all_sw_display)} words):</b><br>"
+                + ", ".join(all_sw_display) + "</div>",
+                unsafe_allow_html=True
+            )
+
+    # Parse custom stopwords
+    _custom_sw = {w.strip().lower() for w in custom_sw_input.split(",") if w.strip()} \
+        if custom_sw_input else set()
+    _active_stopwords = _ACADEMIC_STOPWORDS | _custom_sw
 
     # Clean abstracts — filter out empty/very short entries
     abstracts = (df['abstract']
@@ -1678,10 +1776,14 @@ with tabs[7]:
         # Adaptive min_df: use 2 for large corpora, 1 for small ones
         adaptive_min_df = 2 if len(abstracts) >= 50 else 1
 
+        # Merge sklearn built-in English stopwords with our academic list
+        from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+        combined_stopwords = list(ENGLISH_STOP_WORDS | _active_stopwords)
+
         vec = CountVectorizer(
             max_df=0.95, min_df=adaptive_min_df,
             max_features=2000,
-            stop_words='english',
+            stop_words=combined_stopwords,
             ngram_range=(1, 2),
             token_pattern=r'(?u)\b[a-zA-Z][a-zA-Z]{2,}\b'  # letters only, min 3 chars
         )
@@ -1695,7 +1797,7 @@ with tabs[7]:
                 lda = LatentDirichletAllocation(
                     n_components=n_topics, max_iter=30,
                     learning_method='online', random_state=42,
-                    n_jobs=-1
+                    n_jobs=1
                 )
                 lda.fit(dtm)
                 topics = {i: vocab[comp.argsort()[::-1][:12]].tolist()
@@ -1704,7 +1806,10 @@ with tabs[7]:
                 n_cols = min(3, n_topics)
                 n_rows = (n_topics + n_cols - 1) // n_cols
                 fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols*5, n_rows*4))
-                axes = axes.flatten() if n_topics > 1 else [axes]
+                if n_topics == 1:
+                    axes = [axes]
+                else:
+                    axes = np.array(axes).flatten()
                 for i in range(n_topics):
                     words  = topics[i]
                     scores = sorted(lda.components_[i], reverse=True)[:12]
