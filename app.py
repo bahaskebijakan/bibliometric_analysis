@@ -1626,32 +1626,87 @@ with tabs[6]:
 
     # Interactive PyVis
     st.markdown("---")
+    st.markdown("<div style='color:#94A3B8;font-size:0.85rem;margin-bottom:10px'>🕸️ <b style='color:#F1F5F9'>Interactive Network</b> — drag, zoom & hover over nodes</div>", unsafe_allow_html=True)
+
+    net_type = st.radio(
+        "Select network type",
+        options=["👥 Co-authorship Network", "🔑 Keyword Co-occurrence Network"],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+
     if st.button("🕸️ Generate Interactive Network (HTML)", use_container_width=True):
         NetworkCls = _get_pyvis()
         if NetworkCls is None:
             st.error("pyvis is not available in this environment. Interactive network unavailable.")
         else:
             with st.spinner("Building interactive network..."):
-                deg_thresh = max(1, int(np.percentile(list(deg_c.values()), 70))) if deg_c else 1
-                SG2 = G.subgraph([n for n,d in deg_c.items() if d >= deg_thresh])
-                nv  = NetworkCls(height='600px', width='100%', bgcolor='#0F1117',
-                              font_color='#CBD5E1', notebook=False)
+                nv = NetworkCls(height='640px', width='100%', bgcolor='#0F1117',
+                                font_color='#CBD5E1', notebook=False)
                 nv.barnes_hut(gravity=-8000, central_gravity=0.3, spring_length=120)
-                for node in SG2.nodes():
-                    d = SG2.degree(node); b = btw_c.get(node,0)
-                    nv.add_node(node, label=node, size=d*4+6,
-                                color=f'rgba(59,130,246,{min(0.3+b*15,1):.2f})',
-                                title=f'{node}\nDegree: {d}\nBetweenness: {b:.4f}')
-                for u,v,d in SG2.edges(data=True):
-                    nv.add_edge(u,v,width=d.get('weight',1)*0.6)
+
+                if "Co-authorship" in net_type:
+                    # ── Co-authorship network ──────────────────────────────
+                    deg_thresh = max(1, int(np.percentile(list(deg_c.values()), 70))) if deg_c else 1
+                    SG2 = G.subgraph([n for n, d in deg_c.items() if d >= deg_thresh])
+                    for node in SG2.nodes():
+                        d = SG2.degree(node)
+                        b = btw_c.get(node, 0)
+                        nv.add_node(node, label=node,
+                                    size=d * 4 + 6,
+                                    color=f'rgba(59,130,246,{min(0.3 + b * 15, 1):.2f})',
+                                    title=f'{node}\nDegree: {d}\nBetweenness: {b:.4f}')
+                    for u, v, d in SG2.edges(data=True):
+                        nv.add_edge(u, v, width=d.get('weight', 1) * 0.6,
+                                    color='rgba(30,42,64,0.8)')
+                    fname    = "coauthorship_interactive.html"
+                    dl_label = "⬇️ Download Co-authorship Network (HTML)"
+
+                else:
+                    # ── Keyword co-occurrence network ──────────────────────
+                    if G_kw.number_of_nodes() == 0:
+                        st.warning("No keyword co-occurrence data. Lower the min. co-occurrence slider or upload data with author keywords.")
+                    else:
+                        kw_deg2 = dict(G_kw.degree())
+                        kw_btw  = nx.betweenness_centrality(G_kw, normalized=True, weight='weight')
+                        # Colour nodes by community
+                        try:
+                            communities = nx.community.greedy_modularity_communities(G_kw)
+                            palette = ['#3B82F6','#A78BFA','#34D399','#F59E0B','#EF4444',
+                                       '#06B6D4','#F472B6','#84CC16','#FB923C','#818CF8']
+                            node_community = {}
+                            for ci, comm in enumerate(communities):
+                                for n in comm:
+                                    node_community[n] = palette[ci % len(palette)]
+                        except Exception:
+                            node_community = {n: '#A78BFA' for n in G_kw.nodes()}
+
+                        for node in G_kw.nodes():
+                            d   = kw_deg2.get(node, 1)
+                            b   = kw_btw.get(node, 0)
+                            col = node_community.get(node, '#A78BFA')
+                            nv.add_node(node, label=node,
+                                        size=d * 5 + 8,
+                                        color=col,
+                                        title=f'{node}\nCo-occurrences: {d}\nBridging score: {b:.4f}')
+                        for u, v, d in G_kw.edges(data=True):
+                            w = d.get('weight', 1)
+                            nv.add_edge(u, v, width=w * 0.8,
+                                        color='rgba(30,42,64,0.7)',
+                                        title=f'Co-occurrences: {w}')
+                        fname    = "keyword_network_interactive.html"
+                        dl_label = "⬇️ Download Keyword Network (HTML)"
+
                 with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as tmp:
                     nv.save_graph(tmp.name)
-                    with open(tmp.name, 'r') as fh: html_str = fh.read()
-                st.download_button("⬇️ Download Interactive Network (HTML)",
+                    with open(tmp.name, 'r') as fh:
+                        html_str = fh.read()
+                st.download_button(dl_label,
                                    data=html_str.encode(),
-                                   file_name="author_network_interactive.html",
-                                   mime='text/html', use_container_width=True)
-                st.components.v1.html(html_str, height=620)
+                                   file_name=fname,
+                                   mime='text/html',
+                                   use_container_width=True)
+                st.components.v1.html(html_str, height=650)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
