@@ -8,8 +8,6 @@ from itertools import combinations
 import re, os, io, zipfile, tempfile
 import warnings
 warnings.filterwarnings('ignore', category=RuntimeWarning)
-warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib'), warnings
-warnings.filterwarnings('ignore', category=RuntimeWarning)
 warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib')
 
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
