@@ -6,6 +6,9 @@ import networkx as nx
 from collections import Counter
 from itertools import combinations
 import re, os, io, zipfile, tempfile
+import warnings
+warnings.filterwarnings('ignore', category=RuntimeWarning), warnings
+warnings.filterwarnings('ignore', category=RuntimeWarning)
 
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
@@ -590,7 +593,7 @@ def dl_btn(label, fig, fname):
         data=fig_to_bytes(fig),
         file_name=fname,
         mime='image/png',
-        use_container_width=True,
+        width='stretch',
     )
 
 def section(title):
@@ -1169,7 +1172,7 @@ with tabs[2]:
     st.dataframe(
         auth_df.head(20).rename(columns={'author':'Author','papers':'Papers',
                                           'total_cites':'Total Citations','cites_per_paper':'Cites/Paper'}),
-        use_container_width=True, hide_index=True
+        width='stretch', hide_index=True
     )
 
 
@@ -1419,7 +1422,7 @@ with tabs[5]:
         axes[1].set_ylabel('Cumulative Cites %')
         axes[1].legend(facecolor='#1E2A40', labelcolor='#CBD5E1')
 
-        cyt = df.groupby('year')['cited_by'].agg(['mean','sum'])
+        cyt = df[df.cited_by.notna()].groupby('year')['cited_by'].agg(['mean','sum'])
         ax2 = axes[2].twinx()
         axes[2].bar(cyt.index, cyt['sum'], color=C['blue'], alpha=0.4, label='Total cites')
         ax2.plot(cyt.index, cyt['mean'], color=C['red'], lw=2, marker='o', ms=4, label='Mean/paper')
@@ -1479,7 +1482,7 @@ with tabs[5]:
         tc['title'] = tc['title'].str[:70] + '...'
         st.dataframe(tc.rename(columns={'title':'Title','year':'Year',
                                          'journal':'Journal','cited_by':'Citations'}),
-                     use_container_width=True, hide_index=True)
+                     width='stretch', hide_index=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1623,7 +1626,7 @@ with tabs[6]:
 
     # Interactive PyVis
     st.markdown("---")
-    if st.button("🕸️ Generate Interactive Network (HTML)", use_container_width=True):
+    if st.button("🕸️ Generate Interactive Network (HTML)", width='stretch'):
         NetworkCls = _get_pyvis()
         if NetworkCls is None:
             st.error("pyvis is not available in this environment. Interactive network unavailable.")
@@ -1647,7 +1650,7 @@ with tabs[6]:
                 st.download_button("⬇️ Download Interactive Network (HTML)",
                                    data=html_str.encode(),
                                    file_name="author_network_interactive.html",
-                                   mime='text/html', use_container_width=True)
+                                   mime='text/html', width='stretch')
                 st.components.v1.html(html_str, height=620)
 
 
@@ -1912,7 +1915,7 @@ with tabs[9]:
     ready to open in Excel or import into your report.
     </div>""", unsafe_allow_html=True)
 
-    if st.button("📦 Generate & Download All CSVs (ZIP)", use_container_width=True):
+    if st.button("📦 Generate & Download All CSVs (ZIP)", width='stretch'):
         with st.spinner("Preparing all files..."):
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -1962,7 +1965,7 @@ with tabs[9]:
                 data=zip_buf.read(),
                 file_name="bibliometric_results.zip",
                 mime="application/zip",
-                use_container_width=True,
+                width='stretch',
             )
         st.success("✅ All files ready!")
 
@@ -2097,7 +2100,7 @@ with tabs[10]:
                                '❌ Always empty', '❌ Not in BIB', '❌ Not in BIB',
                                '✅ Yes', 'Broader: journals, books, datasets, patents'],
         }
-        st.dataframe(pd.DataFrame(comp_data), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(comp_data), width='stretch', hide_index=True)
         st.markdown("""
         <div style='color:#64748B;font-size:0.82rem;margin-top:12px;line-height:1.7'>
         <b style='color:#94A3B8'>Recommendation:</b> Use <b style='color:#60A5FA'>Scopus</b> when you have institutional access
