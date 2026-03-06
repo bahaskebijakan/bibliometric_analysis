@@ -7,8 +7,10 @@ from collections import Counter
 from itertools import combinations
 import re, os, io, zipfile, tempfile
 import warnings
-warnings.filterwarnings('ignore', category=RuntimeWarning), warnings
 warnings.filterwarnings('ignore', category=RuntimeWarning)
+warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib'), warnings
+warnings.filterwarnings('ignore', category=RuntimeWarning)
+warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib')
 
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
@@ -974,7 +976,7 @@ with tabs[0]:
                textprops={'color':'#CBD5E1'})
         ax.set_title('Document Type Mix')
 
-    plt.tight_layout()
+    plt.tight_layout(pad=1.0)
     st.pyplot(fig)
     dl_btn("Download Trend Chart", fig, "trends.png")
 
@@ -1031,7 +1033,7 @@ with tabs[1]:
     z1 = (bdf.cum_pct - 33.3).abs().idxmin()
     z2 = (bdf.cum_pct - 66.7).abs().idxmin()
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7), constrained_layout=True)
     top_j = jc.head(top_n)
     axes[0].barh(top_j.index[::-1], top_j.values[::-1],
                  color=plt.cm.Blues(np.linspace(0.4, 0.9, len(top_j)))[::-1])
@@ -1045,7 +1047,7 @@ with tabs[1]:
     axes[1].set_title("Bradford's Law"); axes[1].set_xlabel('Journal Rank (log)')
     axes[1].set_ylabel('Cumulative %')
     axes[1].legend(facecolor='#1E2A40', labelcolor='#CBD5E1')
-    plt.tight_layout(); st.pyplot(fig)
+    st.pyplot(fig)
     dl_btn("Download Journal Chart", fig, "journals.png")
 
     st.markdown("""
@@ -1126,7 +1128,7 @@ with tabs[2]:
     axes[2].set_title("Lotka's Law"); axes[2].set_xlabel('Papers (log)'); axes[2].set_ylabel('Authors (log)')
     axes[2].legend(facecolor='#1E2A40', labelcolor='#CBD5E1')
 
-    plt.tight_layout(); st.pyplot(fig)
+    plt.tight_layout(pad=1.0); st.pyplot(fig)
     dl_btn("Download Author Chart", fig, "authors.png")
 
     st.markdown("""
@@ -1186,7 +1188,7 @@ with tabs[3]:
     c_df = pd.DataFrame(Counter(all_countries).items(), columns=['country','papers'])\
              .sort_values('papers', ascending=False).reset_index(drop=True)
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7), constrained_layout=True)
 
     if len(c_df) > 0:
         top_c = c_df.head(top_n)
@@ -1208,7 +1210,7 @@ with tabs[3]:
         axes[1].text(i, val+0.2, str(val), ha='center', fontsize=9,
                      fontweight='bold', color='#F1F5F9')
 
-    plt.tight_layout(); st.pyplot(fig)
+    plt.tight_layout(pad=1.0); st.pyplot(fig)
     dl_btn("Download Country & OA Chart", fig, "country_oa.png")
 
     st.markdown("""
@@ -1337,7 +1339,7 @@ with tabs[4]:
                        ha='center', va='center', color='#64748B', transform=axes[1,1].transAxes)
         axes[1,1].axis('off')
 
-    plt.tight_layout(); st.pyplot(fig)
+    plt.tight_layout(pad=1.0); st.pyplot(fig)
     dl_btn("Download Keyword Chart", fig, "keywords.png")
 
     st.markdown("""
@@ -1430,7 +1432,7 @@ with tabs[5]:
         axes[2].set_ylabel('Total Cites', color=C['blue'])
         ax2.set_ylabel('Mean Cites/Paper', color=C['red'])
 
-        plt.tight_layout(); st.pyplot(fig)
+        plt.tight_layout(pad=1.0); st.pyplot(fig)
         dl_btn("Download Citation Chart", fig, "citations.png")
 
         st.markdown("""
@@ -1521,7 +1523,7 @@ with tabs[6]:
             nx.draw_networkx_labels(SG, pos, ax=ax, font_size=6, font_color='#CBD5E1')
             plt.colorbar(sc2, ax=ax, label='Betweenness', shrink=0.6)
         ax.set_title('Author Network (Top 50)', color='#F1F5F9'); ax.axis('off')
-        plt.tight_layout(); st.pyplot(fig2)
+        plt.tight_layout(pad=1.0); st.pyplot(fig2)
         dl_btn("Download Network Chart", fig2, "author_network.png")
 
     with col_b:
@@ -1579,7 +1581,7 @@ with tabs[6]:
             ax3.text(0.5, 0.5, 'No keyword co-occurrences found.\nTry lowering the min. co-occurrence slider.',
                      ha='center', va='center', color='#64748B', transform=ax3.transAxes)
         ax3.set_title(f'Keyword Network (co-occur ≥{min_cooc})', color='#F1F5F9'); ax3.axis('off')
-        plt.tight_layout(); st.pyplot(fig3)
+        plt.tight_layout(pad=1.0); st.pyplot(fig3)
         dl_btn("Download Keyword Network Chart", fig3, "keyword_network.png")
 
     st.markdown("""
@@ -1716,7 +1718,7 @@ with tabs[7]:
                     axes[j].set_visible(False)
                 fig.suptitle(f'LDA Topic Model ({n_topics} Topics)', fontsize=13,
                              fontweight='bold', color='#F1F5F9')
-                plt.tight_layout()
+                plt.tight_layout(pad=1.0)
                 st.pyplot(fig)
                 dl_btn("Download LDA Chart", fig, "lda_topics.png")
 
@@ -1852,7 +1854,7 @@ with tabs[8]:
             ax.set_title('Research Front Map · Bubble size = frequency', color='#F1F5F9')
             ax.legend(facecolor='#161B27', labelcolor='#CBD5E1', title='Category',
                       title_fontsize=9, loc='lower right')
-            plt.tight_layout(); st.pyplot(fig)
+            plt.tight_layout(pad=1.0); st.pyplot(fig)
             dl_btn("Download Research Front Map", fig, "research_fronts.png")
 
             st.markdown("""
